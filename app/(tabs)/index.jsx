@@ -8,6 +8,9 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfi
 import { auth } from '../../config/firebase';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+
 
 export default function AuthPage() {
   const navigation = useNavigation();
@@ -25,6 +28,8 @@ export default function AuthPage() {
   const [registerName, setRegisterName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
+  const [role, setRole] = useState('student'); // default role
+
 
   useEffect(() => {
     if (user) {
@@ -77,7 +82,7 @@ export default function AuthPage() {
         </View>
       </View>
       <Text style={[styles.title, isDarkMode && { color: '#fff' }]}>
-        Welcome to MandiGuard
+        Welcome to Eco Chain
       </Text>
 
       {/* Tabs */}

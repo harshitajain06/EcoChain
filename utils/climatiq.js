@@ -2,7 +2,7 @@ export default async function estimateCarbonFromActivity(title, category) {
   const response = await fetch('https://api.climatiq.io/estimate', {
     method: 'POST',
     headers: {
-      Authorization: '',
+      Authorization: 'Bearer JWEW3X0ZCS5435AVZDFJAXC1MR',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
