@@ -1,20 +1,23 @@
 // src/navigation/StackLayout.jsx
-import React from "react";
-import { createStackNavigator } from "@react-navigation/stack";
+import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createDrawerNavigator } from '@react-navigation/drawer';
+import { useNavigation } from '@react-navigation/native';
+import { createStackNavigator } from "@react-navigation/stack";
+import { signOut } from 'firebase/auth';
+import React from "react";
+import { Alert } from 'react-native';
+import { auth } from "../../config/firebase";
+import { Colors } from "../../constants/Colors";
+import { useColorScheme } from "../../hooks/useColorScheme";
+import ActivityLibraryScreen from "./ActivityLibraryScreen";
+import CompleteProfileScreen from "./CompleteProfileScreen";
 import DashboardScreen from "./DashboardScreen";
+import LoginRegister from './index';
+import LifestyleSurveyScreen from "./LifestyleSurveyScreen";
 import LogActivityScreen from "./LogActivityScreen";
 import OnboardingScreen from "./OnboardingScreen";
 import RewardsScreen from "./RewardsScreen";
-import LoginRegister from './index';
-import { Colors } from "../../constants/Colors";
-import { useColorScheme } from "../../hooks/useColorScheme";
-import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from '@react-navigation/native';
-import { createDrawerNavigator } from '@react-navigation/drawer';
-import { signOut } from 'firebase/auth';
-import { Alert } from 'react-native';
-import { auth } from "../../config/firebase";
 
 
 const Stack = createStackNavigator();
@@ -89,6 +92,39 @@ const DrawerNavigator = () => {
   return (
     <Drawer.Navigator initialRouteName="MainTabs">
       <Drawer.Screen name="MainTabs" component={BottomTabs} options={{ title: 'Home' }} />
+      
+      <Drawer.Screen
+        name="CompleteProfile"
+        component={CompleteProfileScreen}
+        options={{
+          title: 'Complete Profile',
+          drawerIcon: ({ color, size }) => (
+            <Ionicons name="person-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      
+      <Drawer.Screen
+        name="LifestyleSurvey"
+        component={LifestyleSurveyScreen}
+        options={{
+          title: 'Lifestyle Survey',
+          drawerIcon: ({ color, size }) => (
+            <Ionicons name="clipboard-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      
+      <Drawer.Screen
+        name="ActivityLibrary"
+        component={ActivityLibraryScreen}
+        options={{
+          title: 'Activity Library',
+          drawerIcon: ({ color, size }) => (
+            <Ionicons name="library-outline" size={size} color={color} />
+          ),
+        }}
+      />
       
       <Drawer.Screen
         name="Logout"
