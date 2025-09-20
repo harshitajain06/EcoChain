@@ -1,9 +1,24 @@
 // screens/LogActivityScreen.js
+import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import * as ImagePicker from 'expo-image-picker';
 import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Alert, Dimensions, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  Dimensions,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { auth, db } from '../../config/firebase';
 
 const { width } = Dimensions.get('window');
@@ -272,34 +287,120 @@ function getCalculationNote(category, value) {
 }
 
 export default function LogActivityScreen({ navigation }) {
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Transport');
-  const [desc, setDesc] = useState('');
-  const [value, setValue] = useState('');
+  const [activityName, setActivityName] = useState('');
+  const [category, setCategory] = useState('Air');
+  const [date, setDate] = useState('Jun 22, 2025');
+  const [startTime, setStartTime] = useState('08:30 AM');
+  const [duration, setDuration] = useState('2.0');
+  const [description, setDescription] = useState('');
+  const [hoursSpent, setHoursSpent] = useState('2.0');
+  const [participants, setParticipants] = useState('1');
+  const [useLocation, setUseLocation] = useState(false);
+  const [isGroupActivity, setIsGroupActivity] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [confirmationModalVisible, setConfirmationModalVisible] = useState(false);
+  const [wordCountErrorModalVisible, setWordCountErrorModalVisible] = useState(false);
+  
+  // Debug modal state changes
+  useEffect(() => {
+    console.log('Modal visibility changed:', confirmationModalVisible);
+  }, [confirmationModalVisible]);
   const [co2Result, setCo2Result] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [selectedImages, setSelectedImages] = useState([]);
+  const [uploading, setUploading] = useState(false);
 
   const [user] = useAuthState(auth);
   const userId = user ? user.uid : 'demoUserId';
 
-  const handleSubmit = async () => {
-    if (!title.trim() || !value.trim()) {
+  const requestPermissions = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload photos.');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const pickImage = async () => {
+    const hasPermission = await requestPermissions();
+    if (!hasPermission) return;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        maxImages: 5,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImages = result.assets.map(asset => ({
+          uri: asset.uri,
+          id: Date.now() + Math.random(),
+        }));
+        setSelectedImages(prev => [...prev, ...newImages].slice(0, 5)); // Max 5 images
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const removeImage = (imageId) => {
+    setSelectedImages(prev => prev.filter(img => img.id !== imageId));
+  };
+
+  const handleSubmit = () => {
+    console.log('=== SUBMIT DEBUG ===');
+    console.log('Activity Name:', activityName);
+    console.log('Description:', description);
+    
+    // Fix word count calculation - filter out empty strings
+    const words = description.trim().split(/\s+/).filter(word => word.length > 0);
+    const wordCount = words.length;
+    console.log('Word count:', wordCount);
+    
+    if (!activityName.trim() || !description.trim()) {
+      console.log('❌ Validation failed: Missing required fields');
       Alert.alert('Error', 'Please fill in all required fields.');
       return;
     }
 
+    if (wordCount < 50) {
+      console.log('❌ Validation failed: Description too short');
+      setWordCountErrorModalVisible(true);
+      return;
+    }
+
+    console.log('✅ Validation passed, showing confirmation modal');
+    // Show confirmation modal
+    setConfirmationModalVisible(true);
+    console.log('Modal state set to true');
+  };
+
+  const confirmSubmit = async () => {
+    setConfirmationModalVisible(false);
     setLoading(true);
     try {
-      const carbonImpact = await estimateCarbonFromActivity(category, value);
+      const carbonImpact = await estimateCarbonFromActivity(category, duration);
 
       // Add activity to Firestore
       await addDoc(collection(db, 'activities'), {
-        title: title.trim(),
+        title: activityName.trim(),
         category,
-        desc: desc.trim(),
-        value: Number(value),
+        description: description.trim(),
+        date,
+        startTime,
+        duration: Number(duration),
+        hoursSpent: Number(hoursSpent),
+        participants: Number(participants),
+        isGroupActivity,
+        useLocation,
         co2: carbonImpact,
+        images: selectedImages.map(img => ({ uri: img.uri, id: img.id })),
         createdAt: serverTimestamp(),
         userId,
       });
@@ -315,10 +416,13 @@ export default function LogActivityScreen({ navigation }) {
       }, { merge: true });
 
       // Reset form
-      setTitle('');
-      setDesc('');
-      setValue('');
-      setCategory('Transport');
+      setActivityName('');
+      setDescription('');
+      setDuration('2.0');
+      setHoursSpent('2.0');
+      setParticipants('1');
+      setCategory('Air');
+      setSelectedImages([]);
 
       setCo2Result(carbonImpact);
       setModalVisible(true);
@@ -326,13 +430,12 @@ export default function LogActivityScreen({ navigation }) {
       console.error('Error logging activity:', error);
       Alert.alert(
         'Error', 
-        'Failed to log activity. The carbon estimation service may be temporarily unavailable, but your activity has been logged with an estimated value.',
+        'Failed to log activity. Please try again.',
         [
           {
             text: 'OK',
             onPress: () => {
-              // Still show the modal with fallback calculation
-              const fallbackCarbon = calculateFallbackCarbon(category, value);
+              const fallbackCarbon = calculateFallbackCarbon(category, duration);
               setCo2Result(fallbackCarbon);
               setModalVisible(true);
             }
@@ -345,82 +448,293 @@ export default function LogActivityScreen({ navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header Section */}
-      <View style={styles.headerSection}>
-        <Text style={styles.header}>Log Activity</Text>
-        <Text style={styles.subtitle}>Track your sustainable actions</Text>
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Log Activity</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-      {/* Form Card */}
-      <View style={styles.formCard}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Activity Details Section */}
+        <View style={[styles.section, styles.firstSection]}>
         <Text style={styles.sectionTitle}>Activity Details</Text>
         
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Activity Title *</Text>
+            <Text style={styles.label}>Activity Name</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g., Biked to work"
-            value={title}
-            onChangeText={setTitle}
+              placeholder="e.g., Beach Cleanup at Corniche"
+              value={activityName}
+              onChangeText={setActivityName}
             placeholderTextColor="#999"
           />
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Category *</Text>
+            <Text style={styles.label}>Category</Text>
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={category}
               onValueChange={(itemValue) => setCategory(itemValue)}
               style={styles.picker}
             >
-              {Object.keys(activityMap).map((cat) => (
-                <Picker.Item key={cat} label={cat} value={cat} />
-              ))}
+                <Picker.Item label="Air" value="Air" />
+                <Picker.Item label="Water" value="Water" />
+                <Picker.Item label="Waste" value="Waste" />
+                <Picker.Item label="Energy" value="Energy" />
+                <Picker.Item label="Transport" value="Transport" />
             </Picker>
+              <Ionicons name="chevron-down" size={20} color="#666" style={styles.pickerIcon} />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Date</Text>
+            <View style={styles.inputWithIcon}>
+              <TextInput
+                style={styles.input}
+                value={date}
+                onChangeText={setDate}
+                placeholder="Jun 22, 2025"
+                placeholderTextColor="#999"
+              />
+              <Ionicons name="calendar-outline" size={20} color="#666" style={styles.inputIcon} />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Start Time</Text>
+            <View style={styles.inputWithIcon}>
+              <TextInput
+                style={styles.input}
+                value={startTime}
+                onChangeText={setStartTime}
+                placeholder="08:30 AM"
+                placeholderTextColor="#999"
+              />
+              <Ionicons name="time-outline" size={20} color="#666" style={styles.inputIcon} />
           </View>
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>{placeholderMap[category] || 'Value'} *</Text>
+            <Text style={styles.label}>Duration (hrs)</Text>
           <TextInput
             style={styles.input}
-            placeholder={placeholderMap[category] || 'Enter value'}
-            value={value}
-            onChangeText={setValue}
+              value={duration}
+              onChangeText={setDuration}
+              placeholder="2.0"
             keyboardType="numeric"
             placeholderTextColor="#999"
           />
+          </View>
         </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Description (Optional)</Text>
+        {/* Description Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Description (minimum 50 words)</Text>
           <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Add more details about your activity..."
-            value={desc}
-            onChangeText={setDesc}
+            style={styles.textArea}
+            placeholder="Describe what you did, where, with whom, and the outcome."
+            value={description}
+            onChangeText={setDescription}
             multiline
-            numberOfLines={3}
+            numberOfLines={4}
             placeholderTextColor="#999"
           />
+          <Text style={styles.wordCount}>
+            {description.trim().split(/\s+/).filter(word => word.length > 0).length} words (Minimum 50 words for approval)
+          </Text>
         </View>
 
+        {/* Proof of Activity Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Proof of Activity</Text>
+          
+          <View style={styles.proofButtons}>
+            <TouchableOpacity style={styles.proofButton} onPress={pickImage}>
+              <Ionicons name="camera-outline" size={20} color="#4CAF50" />
+              <Text style={styles.proofButtonText}>Add Photos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.proofButton} onPress={() => Alert.alert('Coming Soon', 'Document upload will be available soon!')}>
+              <Ionicons name="document-outline" size={20} color="#4CAF50" />
+              <Text style={styles.proofButtonText}>Add Document</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.locationToggle}>
+            <Text style={styles.toggleLabel}>Use current location</Text>
+            <Switch
+              value={useLocation}
+              onValueChange={setUseLocation}
+              trackColor={{ false: '#767577', true: '#4CAF50' }}
+              thumbColor={useLocation ? '#fff' : '#f4f3f4'}
+            />
+          </View>
+
+          {selectedImages.length > 0 ? (
+            <View style={styles.imagesPreview}>
+              <Text style={styles.imagesPreviewTitle}>Selected Photos ({selectedImages.length}/5)</Text>
+              <View style={styles.imagesGrid}>
+                {selectedImages.map((image) => (
+                  <View key={image.id} style={styles.imageContainer}>
+                    <Image source={{ uri: image.uri }} style={styles.previewImage} />
+                    <TouchableOpacity 
+                      style={styles.removeImageButton}
+                      onPress={() => removeImage(image.id)}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#ff4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.uploadPreview}>
+              <Text style={styles.uploadPreviewText}>No photos selected</Text>
+              <Text style={styles.uploadPreviewSubtext}>Tap "Add Photos" to select images</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Additional Details Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Additional Details</Text>
+          
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Hours Spent</Text>
+            <TextInput
+              style={styles.input}
+              value={hoursSpent}
+              onChangeText={setHoursSpent}
+              placeholder="2.0"
+              keyboardType="numeric"
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Participants</Text>
+            <TextInput
+              style={styles.input}
+              value={participants}
+              onChangeText={setParticipants}
+              placeholder="1"
+              keyboardType="numeric"
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          <View style={styles.checkboxContainer}>
+            <TouchableOpacity 
+              style={styles.checkbox}
+              onPress={() => setIsGroupActivity(!isGroupActivity)}
+            >
+              <View style={[styles.checkboxBox, isGroupActivity && styles.checkboxChecked]}>
+                {isGroupActivity && <Ionicons name="checkmark" size={16} color="#fff" />}
+              </View>
+              <Text style={styles.checkboxLabel}>This was a group activity</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Test Modal Button */}
         <TouchableOpacity 
-          style={[styles.button, loading && styles.buttonDisabled]} 
+          style={[styles.submitButton, { backgroundColor: '#ff6b6b', marginBottom: 10 }]} 
+          onPress={() => {
+            console.log('Test modal button pressed');
+            setConfirmationModalVisible(true);
+          }}
+        >
+          <Text style={styles.submitButtonText}>Test Modal</Text>
+        </TouchableOpacity>
+
+        {/* Submit Button */}
+        <TouchableOpacity 
+          style={[styles.submitButton, loading && styles.submitButtonDisabled]} 
           onPress={handleSubmit}
           disabled={loading}
+          activeOpacity={0.8}
         >
-          <Text style={styles.buttonText}>
-            {loading ? 'Calculating...' : 'Calculate & Submit'}
+          <Text style={styles.submitButtonText}>
+            {loading ? 'Submitting...' : 'Submit for Review'}
           </Text>
         </TouchableOpacity>
-        
-        <Text style={styles.calculationNote}>
-          💡 Using EPA/ICAO emission factors for accurate calculations
-        </Text>
-      </View>
+      </ScrollView>
+
+      {/* Confirmation Modal */}
+      <Modal visible={confirmationModalVisible} transparent animationType="slide">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.confirmationIcon}>
+              <Text style={styles.confirmationEmoji}>❓</Text>
+            </View>
+            <Text style={styles.modalTitle}>Confirm Submission</Text>
+            <Text style={styles.modalSubtitle}>
+              Are you sure you want to submit this activity for review?
+            </Text>
+            <View style={styles.confirmationDetails}>
+              <Text style={styles.confirmationDetailText}>
+                <Text style={styles.confirmationLabel}>Activity: </Text>
+                {activityName}
+              </Text>
+              <Text style={styles.confirmationDetailText}>
+                <Text style={styles.confirmationLabel}>Category: </Text>
+                {category}
+              </Text>
+              <Text style={styles.confirmationDetailText}>
+                <Text style={styles.confirmationLabel}>Duration: </Text>
+                {duration} hours
+              </Text>
+              <Text style={styles.confirmationDetailText}>
+                <Text style={styles.confirmationLabel}>Photos: </Text>
+                {selectedImages.length} selected
+              </Text>
+            </View>
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity
+                onPress={() => setConfirmationModalVisible(false)}
+                style={styles.cancelButton}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmSubmit}
+                style={styles.confirmButton}
+              >
+                <Text style={styles.confirmButtonText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Word Count Error Modal */}
+      <Modal visible={wordCountErrorModalVisible} transparent animationType="slide">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.errorIcon}>
+              <Text style={styles.errorEmoji}>⚠️</Text>
+            </View>
+            <Text style={styles.modalTitle}>Description Too Short</Text>
+            <Text style={styles.modalSubtitle}>
+              Description must be at least 50 words for approval. Current: {description.trim().split(/\s+/).filter(word => word.length > 0).length} words.
+            </Text>
+            <Text style={styles.modalDescription}>
+              Please provide more details about your activity, including what you did, where it took place, who was involved, and the outcome or impact.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setWordCountErrorModalVisible(false)}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeButtonText}>Got It</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Success Modal */}
       <Modal visible={modalVisible} transparent animationType="slide">
@@ -429,16 +743,13 @@ export default function LogActivityScreen({ navigation }) {
             <View style={styles.successIcon}>
               <Text style={styles.successEmoji}>🌱</Text>
             </View>
-            <Text style={styles.modalTitle}>Activity Logged!</Text>
+            <Text style={styles.modalTitle}>Activity Submitted!</Text>
             <Text style={styles.modalSubtitle}>
-              Your sustainable action has been recorded
+              Your activity has been submitted for review
             </Text>
             <View style={styles.co2Result}>
-              <Text style={styles.co2Label}>Carbon Impact</Text>
+              <Text style={styles.co2Label}>Estimated Carbon Impact</Text>
               <Text style={styles.co2Value}>{co2Result?.toFixed(2)} kg CO₂</Text>
-              <Text style={styles.co2Note}>
-                {getCalculationNote(category, value)}
-              </Text>
             </View>
             <TouchableOpacity
               onPress={() => {
@@ -452,7 +763,7 @@ export default function LogActivityScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -461,39 +772,43 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fffe',
   },
-  headerSection: {
-    backgroundColor: '#2d5a27',
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
     paddingBottom: 30,
+    backgroundColor: '#2d5a27',
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
-  header: {
+  headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 5,
+    color: '#fff',
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#a8d5a8',
+  scrollView: {
+    flex: 1,
+    paddingHorizontal: 20,
   },
-  formCard: {
+  section: {
     backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginTop: -15,
+    marginTop: 20,
     borderRadius: 20,
-    padding: 25,
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
-    marginBottom: 30,
+    marginBottom: 20,
+  },
+  firstSection: {
+    marginTop: -15,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#2d5a27',
     marginBottom: 20,
@@ -508,56 +823,194 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
+    backgroundColor: '#fafafa',
     borderWidth: 1,
     borderColor: '#e0e0e0',
     borderRadius: 12,
     paddingHorizontal: 15,
     paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: '#fafafa',
     color: '#333',
   },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
+  inputWithIcon: {
+    position: 'relative',
   },
-  pickerContainer: {
+  inputIcon: {
+    position: 'absolute',
+    right: 16,
+    top: 12,
+  },
+  textArea: {
+    backgroundColor: '#fafafa',
     borderWidth: 1,
     borderColor: '#e0e0e0',
     borderRadius: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  wordCount: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  pickerContainer: {
     backgroundColor: '#fafafa',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    position: 'relative',
     overflow: 'hidden',
   },
   picker: {
     height: 50,
+    color: '#333',
   },
-  button: {
+  pickerIcon: {
+    position: 'absolute',
+    right: 16,
+    top: 15,
+  },
+  proofButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    gap: 10,
+  },
+  proofButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e8f5e8',
+    borderWidth: 1,
+    borderColor: '#4caf50',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  proofButtonText: {
+    color: '#2d5a27',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  locationToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    paddingVertical: 8,
+  },
+  toggleLabel: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  uploadPreview: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    padding: 16,
+    height: 80,
+    justifyContent: 'center',
+    borderStyle: 'dashed',
+  },
+  uploadPreviewText: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  uploadPreviewSubtext: {
+    color: '#999',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  imagesPreview: {
+    marginTop: 16,
+  },
+  imagesPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  imagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  imageContainer: {
+    position: 'relative',
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: 'white',
+    borderRadius: 10,
+  },
+  checkboxContainer: {
+    marginTop: 20,
+  },
+  checkbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkboxBox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#4caf50',
+    borderRadius: 4,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#4caf50',
+  },
+  checkboxLabel: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  submitButton: {
     backgroundColor: '#4caf50',
     paddingVertical: 15,
     borderRadius: 12,
-    marginTop: 10,
+    marginVertical: 20,
+    alignItems: 'center',
     shadowColor: '#4caf50',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
-  buttonDisabled: {
+  submitButtonDisabled: {
     backgroundColor: '#a5d6a7',
     shadowOpacity: 0.1,
   },
-  buttonText: {
-    color: 'white',
-    textAlign: 'center',
+  submitButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  calculationNote: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 10,
-    fontStyle: 'italic',
   },
   modalContainer: {
     flex: 1,
@@ -622,13 +1075,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#4caf50',
   },
-  co2Note: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 5,
-    fontStyle: 'italic',
-  },
   closeButton: {
     backgroundColor: '#4caf50',
     paddingVertical: 12,
@@ -637,9 +1083,88 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   closeButtonText: {
-    color: 'white',
+    color: '#fff',
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '600',
+  },
+  confirmationIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff3cd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  confirmationEmoji: {
+    fontSize: 40,
+  },
+  confirmationDetails: {
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 25,
+    width: '100%',
+  },
+  confirmationDetailText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  confirmationLabel: {
+    fontWeight: '600',
+    color: '#2d5a27',
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    gap: 15,
+    width: '100%',
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#6c757d',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: '#4caf50',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  errorIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#ffebee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  errorEmoji: {
+    fontSize: 40,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 25,
+    lineHeight: 20,
   },
 });

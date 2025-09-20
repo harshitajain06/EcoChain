@@ -10,12 +10,15 @@ export default function RewardsScreen() {
   const [user] = useAuthState(auth);
   const [userData, setUserData] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [rewardsEarned, setRewardsEarned] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (user) {
       fetchUserData();
       fetchTransactions();
+      fetchActivities();
     }
   }, [user]);
 
@@ -50,12 +53,222 @@ export default function RewardsScreen() {
     }
   };
 
-  const badges = [
-    { id: 1, name: 'Eco Warrior', emoji: '🌱', description: 'First activity logged', earned: true },
-    { id: 2, name: 'Carbon Saver', emoji: '♻️', description: 'Saved 10kg CO₂', earned: true },
-    { id: 3, name: 'Green Champion', emoji: '🏆', description: 'Saved 50kg CO₂', earned: false },
-    { id: 4, name: 'Eco Legend', emoji: '🌟', description: 'Saved 100kg CO₂', earned: false },
-  ];
+  const fetchActivities = async () => {
+    try {
+      const activitiesQuery = query(
+        collection(db, 'activities'),
+        where('userId', '==', user.uid)
+      );
+      const querySnapshot = await getDocs(activitiesQuery);
+      const activitiesData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setActivities(activitiesData);
+      calculateRewards(activitiesData);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+    }
+  };
+
+  const calculateRewards = (activitiesData) => {
+    const rewards = [];
+    let totalCo2Saved = 0;
+    let totalActivities = activitiesData.length;
+    let totalHours = 0;
+    let groupActivities = 0;
+
+    activitiesData.forEach(activity => {
+      totalCo2Saved += activity.co2 || 0;
+      totalHours += activity.hoursSpent || activity.duration || 0;
+      if (activity.isGroupActivity) groupActivities++;
+    });
+
+    // Calculate badges based on achievements
+    const badges = calculateBadges(totalCo2Saved, totalActivities, totalHours, groupActivities);
+    
+    // Calculate rewards earned
+    const carbonCredits = Math.floor(totalCo2Saved);
+    const ecoCredits = Math.floor(totalActivities * 5 + totalHours * 2);
+    
+    rewards.push({
+      id: 'carbon_credits',
+      type: 'credits',
+      name: 'Carbon Credits',
+      emoji: '🌱',
+      amount: carbonCredits,
+      description: `Earned from saving ${totalCo2Saved.toFixed(1)}kg CO₂`
+    });
+
+    rewards.push({
+      id: 'eco_credits',
+      type: 'credits',
+      name: 'Eco Credits',
+      emoji: '⭐',
+      amount: ecoCredits,
+      description: `Earned from ${totalActivities} activities and ${totalHours.toFixed(1)} hours`
+    });
+
+    // Add badge rewards
+    badges.forEach(badge => {
+      if (badge.earned) {
+        rewards.push({
+          id: `badge_${badge.id}`,
+          type: 'badge',
+          name: badge.name,
+          emoji: badge.emoji,
+          description: badge.description,
+          credits: badge.credits || 0
+        });
+      }
+    });
+
+    setRewardsEarned(rewards);
+  };
+
+  const calculateBadges = (totalCo2, totalActivities, totalHours, groupActivities) => {
+    return [
+      { 
+        id: 1, 
+        name: 'Eco Warrior', 
+        emoji: '🌱', 
+        description: 'First activity logged', 
+        earned: totalActivities >= 1,
+        credits: 10
+      },
+      { 
+        id: 2, 
+        name: 'Carbon Saver', 
+        emoji: '♻️', 
+        description: 'Saved 10kg CO₂', 
+        earned: totalCo2 >= 10,
+        credits: 25
+      },
+      { 
+        id: 3, 
+        name: 'Green Champion', 
+        emoji: '🏆', 
+        description: 'Saved 50kg CO₂', 
+        earned: totalCo2 >= 50,
+        credits: 50
+      },
+      { 
+        id: 4, 
+        name: 'Eco Legend', 
+        emoji: '🌟', 
+        description: 'Saved 100kg CO₂', 
+        earned: totalCo2 >= 100,
+        credits: 100
+      },
+      { 
+        id: 5, 
+        name: 'Time Keeper', 
+        emoji: '⏰', 
+        description: 'Logged 50+ hours', 
+        earned: totalHours >= 50,
+        credits: 30
+      },
+      { 
+        id: 6, 
+        name: 'Team Player', 
+        emoji: '👥', 
+        description: '5+ group activities', 
+        earned: groupActivities >= 5,
+        credits: 20
+      },
+      { 
+        id: 7, 
+        name: 'Consistent Saver', 
+        emoji: '📈', 
+        description: '20+ activities logged', 
+        earned: totalActivities >= 20,
+        credits: 40
+      },
+      { 
+        id: 8, 
+        name: 'Eco Master', 
+        emoji: '🎖️', 
+        description: 'Saved 200kg CO₂', 
+        earned: totalCo2 >= 200,
+        credits: 150
+      }
+    ];
+  };
+
+  // Get dynamic badges based on user activities
+  const getDynamicBadges = () => {
+    if (activities.length === 0) return [];
+    
+    let totalCo2Saved = 0;
+    let totalActivities = activities.length;
+    let totalHours = 0;
+    let groupActivities = 0;
+
+    activities.forEach(activity => {
+      totalCo2Saved += activity.co2 || 0;
+      totalHours += activity.hoursSpent || activity.duration || 0;
+      if (activity.isGroupActivity) groupActivities++;
+    });
+
+    return calculateBadges(totalCo2Saved, totalActivities, totalHours, groupActivities);
+  };
+
+  const badges = getDynamicBadges();
+
+  const getStoreItems = () => {
+    const totalCredits = (userData?.wallet?.carbonCredits || 0) + (userData?.wallet?.nonCarbonCredits || 0);
+    
+    return [
+      {
+        id: 'tree_planting',
+        name: 'Plant a Tree',
+        emoji: '🌱',
+        price: 50,
+        description: 'We\'ll plant a tree in your name',
+        canRedeem: totalCredits >= 50
+      },
+      {
+        id: 'eco_kit',
+        name: 'Eco Starter Kit',
+        emoji: '♻️',
+        price: 100,
+        description: 'Reusable water bottle & shopping bag',
+        canRedeem: totalCredits >= 100
+      },
+      {
+        id: 'carbon_offset',
+        name: 'Carbon Offset Certificate',
+        emoji: '📜',
+        price: 150,
+        description: 'Official certificate for your impact',
+        canRedeem: totalCredits >= 150
+      },
+      {
+        id: 'eco_workshop',
+        name: 'Eco Workshop Access',
+        emoji: '🎓',
+        price: 200,
+        description: 'Free access to sustainability workshops',
+        canRedeem: totalCredits >= 200
+      },
+      {
+        id: 'green_energy',
+        name: 'Green Energy Credit',
+        emoji: '⚡',
+        price: 300,
+        description: 'Support renewable energy projects',
+        canRedeem: totalCredits >= 300
+      },
+      {
+        id: 'ocean_cleanup',
+        name: 'Ocean Cleanup Support',
+        emoji: '🌊',
+        price: 500,
+        description: 'Fund ocean cleanup initiatives',
+        canRedeem: totalCredits >= 500
+      }
+    ];
+  };
 
   if (loading) {
     return (
@@ -94,6 +307,29 @@ export default function RewardsScreen() {
         </View>
       </View>
 
+      {/* Rewards Earned Section */}
+      <View style={styles.rewardsEarnedCard}>
+        <Text style={styles.cardTitle}>Rewards Earned</Text>
+        <Text style={styles.rewardsSubtitle}>Based on your logged activities</Text>
+        <View style={styles.rewardsList}>
+          {rewardsEarned.map((reward) => (
+            <View key={reward.id} style={styles.rewardItem}>
+              <Text style={styles.rewardEmoji}>{reward.emoji}</Text>
+              <View style={styles.rewardDetails}>
+                <Text style={styles.rewardName}>{reward.name}</Text>
+                <Text style={styles.rewardDescription}>{reward.description}</Text>
+                {reward.credits > 0 && (
+                  <Text style={styles.rewardCredits}>+{reward.credits} credits</Text>
+                )}
+              </View>
+              {reward.amount && (
+                <Text style={styles.rewardAmount}>{reward.amount}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      </View>
+
       {/* Badges Section */}
       <View style={styles.badgesCard}>
         <Text style={styles.cardTitle}>Achievement Badges</Text>
@@ -109,6 +345,9 @@ export default function RewardsScreen() {
               <Text style={[styles.badgeDescription, !badge.earned && styles.badgeDescriptionLocked]}>
                 {badge.description}
               </Text>
+              {badge.earned && badge.credits > 0 && (
+                <Text style={styles.badgeCredits}>+{badge.credits} credits</Text>
+              )}
             </View>
           ))}
         </View>
@@ -146,27 +385,32 @@ export default function RewardsScreen() {
       {/* Rewards Store */}
       <View style={styles.storeCard}>
         <Text style={styles.cardTitle}>Rewards Store</Text>
+        <Text style={styles.storeSubtitle}>Redeem your earned credits for rewards</Text>
         <View style={styles.storeItems}>
-          <View style={styles.storeItem}>
-            <Text style={styles.storeEmoji}>🌱</Text>
+          {getStoreItems().map((item) => (
+            <View key={item.id} style={styles.storeItem}>
+              <Text style={styles.storeEmoji}>{item.emoji}</Text>
             <View style={styles.storeDetails}>
-              <Text style={styles.storeName}>Plant a Tree</Text>
-              <Text style={styles.storePrice}>50 credits</Text>
+                <Text style={styles.storeName}>{item.name}</Text>
+                <Text style={styles.storePrice}>{item.price} credits</Text>
+                <Text style={styles.storeDescription}>{item.description}</Text>
             </View>
-            <TouchableOpacity style={styles.redeemButton}>
-              <Text style={styles.redeemButtonText}>Redeem</Text>
+              <TouchableOpacity 
+                style={[
+                  styles.redeemButton, 
+                  !item.canRedeem && styles.redeemButtonDisabled
+                ]}
+                disabled={!item.canRedeem}
+              >
+                <Text style={[
+                  styles.redeemButtonText,
+                  !item.canRedeem && styles.redeemButtonTextDisabled
+                ]}>
+                  {item.canRedeem ? 'Redeem' : 'Need More Credits'}
+                </Text>
             </TouchableOpacity>
-          </View>
-          <View style={styles.storeItem}>
-            <Text style={styles.storeEmoji}>♻️</Text>
-            <View style={styles.storeDetails}>
-              <Text style={styles.storeName}>Eco Kit</Text>
-              <Text style={styles.storePrice}>100 credits</Text>
             </View>
-            <TouchableOpacity style={styles.redeemButton}>
-              <Text style={styles.redeemButtonText}>Redeem</Text>
-            </TouchableOpacity>
-          </View>
+          ))}
         </View>
     </View>
     </ScrollView>
@@ -255,6 +499,61 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#2d5a27',
   },
+  rewardsEarnedCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  rewardsSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+  },
+  rewardsList: {
+    gap: 12,
+  },
+  rewardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 12,
+  },
+  rewardEmoji: {
+    fontSize: 24,
+    marginRight: 15,
+  },
+  rewardDetails: {
+    flex: 1,
+  },
+  rewardName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  rewardDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  rewardCredits: {
+    fontSize: 12,
+    color: '#4caf50',
+    fontWeight: '600',
+  },
+  rewardAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2d5a27',
+  },
   badgesCard: {
     backgroundColor: 'white',
     marginHorizontal: 20,
@@ -307,6 +606,12 @@ const styles = StyleSheet.create({
   },
   badgeDescriptionLocked: {
     color: '#ccc',
+  },
+  badgeCredits: {
+    fontSize: 10,
+    color: '#4caf50',
+    fontWeight: '600',
+    marginTop: 4,
   },
   transactionsCard: {
     backgroundColor: 'white',
@@ -389,6 +694,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
+  storeSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+  },
   storeItems: {
     gap: 15,
   },
@@ -415,6 +725,11 @@ const styles = StyleSheet.create({
   storePrice: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 2,
+  },
+  storeDescription: {
+    fontSize: 12,
+    color: '#999',
   },
   redeemButton: {
     backgroundColor: '#4caf50',
@@ -422,9 +737,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
   },
+  redeemButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
   redeemButtonText: {
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
+  },
+  redeemButtonTextDisabled: {
+    color: '#999',
   },
 });
