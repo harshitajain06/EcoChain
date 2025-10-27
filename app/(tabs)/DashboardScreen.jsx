@@ -10,6 +10,7 @@ export default function DashboardScreen({ navigation }) {
   const [user] = useAuthState(auth);
   const [userData, setUserData] = useState(null);
   const [recentActivities, setRecentActivities] = useState([]);
+  const [upcomingActivities, setUpcomingActivities] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,6 +19,12 @@ export default function DashboardScreen({ navigation }) {
       fetchRecentActivities();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      fetchUpcomingActivities();
+    }
+  }, [user, userData]);
 
   const fetchUserData = async () => {
     try {
@@ -46,6 +53,102 @@ export default function DashboardScreen({ navigation }) {
       console.error('Error fetching activities:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUpcomingActivities = async () => {
+    try {
+      console.log('Fetching upcoming activities...');
+      const eventsQuery = query(
+        collection(db, 'events'),
+        where('status', '==', 'upcoming')
+      );
+      const querySnapshot = await getDocs(eventsQuery);
+      const events = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      console.log(`Fetched ${events.length} events from database`);
+      
+      // Log user info
+      console.log('User role:', userData?.role);
+      console.log('Student profile:', userData?.profile);
+      
+      // Log each event
+      events.forEach(event => {
+        console.log(`Event: "${event.title}"`, {
+          schoolName: event.schoolName,
+          specificGrade: event.specificGrade,
+          date: event.date
+        });
+      });
+      
+      // Filter events based on user's school and grade for students
+      let filteredEvents = events;
+      
+      if (userData?.role === 'student' && userData?.profile) {
+        filteredEvents = events.filter(event => {
+          let passesSchoolFilter = true;
+          let passesGradeFilter = true;
+          
+          // Filter by school: if event has a specific school, it must match
+          // If event schoolName is 'all' or empty, show to everyone
+          if (event.schoolName && event.schoolName !== 'all' && userData.profile.schoolName) {
+            if (event.schoolName !== userData.profile.schoolName) {
+              passesSchoolFilter = false;
+            }
+          }
+          
+          // Filter by grade: if event has a specific grade, it must match
+          // If event specificGrade is 'all' or empty, show to everyone
+          if (event.specificGrade && event.specificGrade !== 'all' && userData.profile.grade) {
+            if (event.specificGrade !== userData.profile.grade) {
+              passesGradeFilter = false;
+            }
+          }
+          
+          console.log(`Event "${event.title}" - School: ${passesSchoolFilter}, Grade: ${passesGradeFilter}`);
+          return passesSchoolFilter && passesGradeFilter;
+        });
+        console.log(`After school/grade filtering: ${filteredEvents.length} events`);
+      }
+      
+      // Sort by date and get upcoming events
+      const now = new Date();
+      console.log('Current time:', now);
+      
+      const upcoming = filteredEvents
+        .filter(event => {
+          if (!event.date) {
+            console.log(`Event "${event.title}" has no date`);
+            return false;
+          }
+          try {
+            const eventDate = event.date?.toDate ? event.date.toDate() : new Date(event.date);
+            // Compare dates (ignore time, just check if it's today or later)
+            const eventDateOnly = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+            const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const isUpcoming = eventDateOnly >= nowDateOnly;
+            console.log(`Event "${event.title}" date: ${eventDate}, Date only: ${eventDateOnly}, Now date only: ${nowDateOnly}, isUpcoming: ${isUpcoming}`);
+            return isUpcoming;
+          } catch (error) {
+            console.log(`Error parsing date for event "${event.title}":`, error);
+            return false;
+          }
+        })
+        .sort((a, b) => {
+          const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+          const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+          return dateA - dateB;
+        })
+        .slice(0, 3); // Get next 3 upcoming activities
+      
+      console.log(`Showing ${upcoming.length} upcoming activities`);
+      setUpcomingActivities(upcoming);
+    } catch (error) {
+      console.error('Error fetching upcoming activities:', error);
+      // If there's an error, show empty array so the UI doesn't crash
+      setUpcomingActivities([]);
     }
   };
 
@@ -158,23 +261,28 @@ export default function DashboardScreen({ navigation }) {
         )}
       </View>
 
-      {/* Upcoming Events */}
+      {/* Upcoming Activities */}
       <View style={styles.eventsCard}>
-        <Text style={styles.cardTitle}>Upcoming Events</Text>
-        <View style={styles.eventItem}>
-          <Text style={styles.eventEmoji}>🌳</Text>
-          <View style={styles.eventDetails}>
-            <Text style={styles.eventTitle}>Tree Planting Drive</Text>
-            <Text style={styles.eventDate}>April 27, 2024</Text>
-          </View>
-        </View>
-        <View style={styles.eventItem}>
-          <Text style={styles.eventEmoji}>🌊</Text>
-          <View style={styles.eventDetails}>
-            <Text style={styles.eventTitle}>Beach Cleanup</Text>
-            <Text style={styles.eventDate}>April 28, 2024</Text>
-          </View>
-        </View>
+        <Text style={styles.cardTitle}>Upcoming Activities</Text>
+        {upcomingActivities.length > 0 ? (
+          upcomingActivities.map((activity, index) => {
+            const eventDate = activity.date?.toDate ? activity.date.toDate() : new Date(activity.date);
+            return (
+              <View key={activity.id || index} style={styles.eventItem}>
+                <Text style={styles.eventEmoji}>📅</Text>
+                <View style={styles.eventDetails}>
+                  <Text style={styles.eventTitle}>{activity.title}</Text>
+                  <Text style={styles.eventDescription}>{activity.description || 'No description'}</Text>
+                  <Text style={styles.eventDate}>
+                    {eventDate.toLocaleDateString()}
+                  </Text>
+                </View>
+              </View>
+            );
+          })
+        ) : (
+          <Text style={styles.noActivities}>No upcoming activities scheduled</Text>
+        )}
       </View>
     </ScrollView>
   );
@@ -387,6 +495,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    marginBottom: 2,
+  },
+  eventDescription: {
+    fontSize: 14,
+    color: '#666',
     marginBottom: 2,
   },
   eventDate: {

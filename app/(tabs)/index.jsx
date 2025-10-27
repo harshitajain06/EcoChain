@@ -1,16 +1,17 @@
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useNavigation } from '@react-navigation/native';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import {
-    ActivityIndicator, Alert, Platform,
-    ScrollView,
-    StyleSheet,
-    Text, TextInput, TouchableOpacity,
-    View
+  ActivityIndicator, Alert, Platform,
+  ScrollView,
+  StyleSheet,
+  Text, TextInput, TouchableOpacity,
+  View
 } from 'react-native';
-import { auth } from '../../config/firebase';
+import { auth, db } from '../../config/firebase';
 
 
 export default function AuthPage() {
@@ -56,12 +57,29 @@ export default function AuthPage() {
     if (!registerName || !registerEmail || !registerPassword) {
       return Alert.alert('Error', 'Please fill all fields.');
     }
+    if (!role) {
+      return Alert.alert('Error', 'Please select a role.');
+    }
     setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, registerEmail, registerPassword);
       await updateProfile(userCredential.user, {
         displayName: registerName,
       });
+      
+      // Save user data to Firestore with role
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        name: registerName,
+        email: registerEmail,
+        role: role,
+        createdAt: new Date(),
+        profile: { completedAt: null },
+        wallet: {
+          carbonCredits: 0,
+          nonCarbonCredits: 0
+        }
+      });
+      
       setIsLoading(false);
     } catch (error) {
       setIsLoading(false);
@@ -159,6 +177,27 @@ export default function AuthPage() {
               value={registerPassword}
               onChangeText={setRegisterPassword}
             />
+            
+            <Text style={styles.label}>Role</Text>
+            <View style={styles.roleContainer}>
+              <TouchableOpacity
+                style={[styles.roleButton, role === 'student' && styles.roleButtonActive]}
+                onPress={() => setRole('student')}
+              >
+                <Text style={[styles.roleButtonText, role === 'student' && styles.roleButtonTextActive]}>
+                  Student
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.roleButton, role === 'staff' && styles.roleButtonActive]}
+                onPress={() => setRole('staff')}
+              >
+                <Text style={[styles.roleButtonText, role === 'staff' && styles.roleButtonTextActive]}>
+                  Staff
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
             <TouchableOpacity onPress={handleRegister} style={styles.button} disabled={isLoading}>
               {isLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create account</Text>}
             </TouchableOpacity>
@@ -347,5 +386,32 @@ const styles = StyleSheet.create({
     color: '#2E7D32',
     textDecorationLine: 'underline',
     fontWeight: '500',
+  },
+  roleContainer: {
+    flexDirection: 'row',
+    gap: Platform.OS === 'web' ? '8px' : 10,
+    marginBottom: Platform.OS === 'web' ? '12px' : 12,
+  },
+  roleButton: {
+    flex: 1,
+    paddingVertical: Platform.OS === 'web' ? '10px' : 12,
+    paddingHorizontal: Platform.OS === 'web' ? '16px' : 16,
+    borderRadius: Platform.OS === 'web' ? '8px' : 8,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+    alignItems: 'center',
+  },
+  roleButtonActive: {
+    backgroundColor: '#E8F5E8',
+    borderColor: '#4CAF50',
+  },
+  roleButtonText: {
+    fontSize: Platform.OS === 'web' ? '14px' : 14,
+    color: '#6c757d',
+    fontWeight: '600',
+  },
+  roleButtonTextActive: {
+    color: '#2E7D32',
   },
 });

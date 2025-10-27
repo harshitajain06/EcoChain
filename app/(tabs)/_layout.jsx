@@ -5,18 +5,20 @@ import { createDrawerNavigator } from '@react-navigation/drawer';
 import { useNavigation } from '@react-navigation/native';
 import { createStackNavigator } from "@react-navigation/stack";
 import { signOut } from 'firebase/auth';
-import React from "react";
+import { doc, getDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from "react";
+import { useAuthState } from 'react-firebase-hooks/auth';
 import { Alert } from 'react-native';
-import { auth } from "../../config/firebase";
+import { auth, db } from "../../config/firebase";
 import { Colors } from "../../constants/Colors";
 import { useColorScheme } from "../../hooks/useColorScheme";
 import ActivityLibraryScreen from "./ActivityLibraryScreen";
+import CalendarScreen from "./CalendarScreen";
 import CompleteProfileScreen from "./CompleteProfileScreen";
 import DashboardScreen from "./DashboardScreen";
 import LoginRegister from './index';
 import LifestyleSurveyScreen from "./LifestyleSurveyScreen";
 import LogActivityScreen from "./LogActivityScreen";
-import OnboardingScreen from "./OnboardingScreen";
 import RewardsScreen from "./RewardsScreen";
 
 
@@ -27,6 +29,36 @@ const Drawer = createDrawerNavigator();
 // Bottom Tab Navigator Component
 const BottomTabs = () => {
   const colorScheme = useColorScheme();
+  const [user] = useAuthState(auth);
+  const [userRole, setUserRole] = useState('student');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUserRole(userData.role || 'student');
+          }
+        } catch (error) {
+          console.error('Error fetching user role:', error);
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
+
+  // If loading, show a simple loading screen
+  if (loading) {
+    return null;
+  }
+
+  const isStaff = userRole === 'staff';
 
   return (
     <Tab.Navigator
@@ -40,12 +72,10 @@ const BottomTabs = () => {
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
 
-          if (route.name === "Dashboard") {
+          if (route.name === "Dashboard" || route.name === "Calendar") {
             iconName = focused ? "home" : "home-outline";
           } else if (route.name === "Log Activity") {
             iconName = focused ? "pulse" : "pulse-outline";
-          } else if (route.name === "Onboarding") {
-            iconName = focused ? "rocket" : "rocket-outline";
           } else if (route.name === "Rewards") {
             iconName = focused ? "trophy" : "trophy-outline";
           }
@@ -54,22 +84,27 @@ const BottomTabs = () => {
         },
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen
-        name="Log Activity"
-        component={LogActivityScreen}
-        options={{ title: "Log Activity" }}
-      />
-      <Tab.Screen
-        name="Onboarding"
-        component={OnboardingScreen}
-        options={{ title: "Onboarding" }}
-      />
-      <Tab.Screen
-        name="Rewards"
-        component={RewardsScreen}
-        options={{ title: "Rewards" }}
-      />
+      {isStaff ? (
+        <Tab.Screen 
+          name="Calendar" 
+          component={CalendarScreen}
+          options={{ title: "Calendar" }}
+        />
+      ) : (
+        <>
+          <Tab.Screen name="Dashboard" component={DashboardScreen} />
+          <Tab.Screen
+            name="Log Activity"
+            component={LogActivityScreen}
+            options={{ title: "Log Activity" }}
+          />
+          <Tab.Screen
+            name="Rewards"
+            component={RewardsScreen}
+            options={{ title: "Rewards" }}
+          />
+        </>
+      )}
     </Tab.Navigator>
   );
 };
@@ -77,6 +112,26 @@ const BottomTabs = () => {
 // Drawer Navigator Component
 const DrawerNavigator = () => {
   const navigation = useNavigation();
+  const [user] = useAuthState(auth);
+  const [userRole, setUserRole] = useState('student');
+
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUserRole(userData.role || 'student');
+          }
+        } catch (error) {
+          console.error('Error fetching user role:', error);
+        }
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
 
   const handleLogout = () => {
     signOut(auth)
@@ -89,42 +144,48 @@ const DrawerNavigator = () => {
       });
   };
 
+  const isStaff = userRole === 'staff';
+
   return (
     <Drawer.Navigator initialRouteName="MainTabs">
       <Drawer.Screen name="MainTabs" component={BottomTabs} options={{ title: 'Home' }} />
       
-      <Drawer.Screen
-        name="CompleteProfile"
-        component={CompleteProfileScreen}
-        options={{
-          title: 'Complete Profile',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      
-      <Drawer.Screen
-        name="LifestyleSurvey"
-        component={LifestyleSurveyScreen}
-        options={{
-          title: 'Lifestyle Survey',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="clipboard-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      
-      <Drawer.Screen
-        name="ActivityLibrary"
-        component={ActivityLibraryScreen}
-        options={{
-          title: 'Activity Library',
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="library-outline" size={size} color={color} />
-          ),
-        }}
-      />
+      {!isStaff && (
+        <>
+          <Drawer.Screen
+            name="CompleteProfile"
+            component={CompleteProfileScreen}
+            options={{
+              title: 'Complete Profile',
+              drawerIcon: ({ color, size }) => (
+                <Ionicons name="person-outline" size={size} color={color} />
+              ),
+            }}
+          />
+          
+          <Drawer.Screen
+            name="LifestyleSurvey"
+            component={LifestyleSurveyScreen}
+            options={{
+              title: 'Lifestyle Survey',
+              drawerIcon: ({ color, size }) => (
+                <Ionicons name="clipboard-outline" size={size} color={color} />
+              ),
+            }}
+          />
+          
+          <Drawer.Screen
+            name="ActivityLibrary"
+            component={ActivityLibraryScreen}
+            options={{
+              title: 'Activity Library',
+              drawerIcon: ({ color, size }) => (
+                <Ionicons name="library-outline" size={size} color={color} />
+              ),
+            }}
+          />
+        </>
+      )}
       
       <Drawer.Screen
         name="Logout"
