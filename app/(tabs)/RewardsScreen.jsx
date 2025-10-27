@@ -77,6 +77,7 @@ export default function RewardsScreen() {
     let totalActivities = activitiesData.length;
     let totalHours = 0;
     let groupActivities = 0;
+    let totalCreditsEarned = 0;
 
     activitiesData.forEach(activity => {
       totalCo2Saved += activity.co2 || 0;
@@ -90,6 +91,16 @@ export default function RewardsScreen() {
     // Calculate rewards earned
     const carbonCredits = Math.floor(totalCo2Saved);
     const ecoCredits = Math.floor(totalActivities * 5 + totalHours * 2);
+    
+    // Calculate total credits from all sources
+    totalCreditsEarned = carbonCredits + ecoCredits;
+    
+    // Add badge credits to total
+    badges.forEach(badge => {
+      if (badge.earned) {
+        totalCreditsEarned += badge.credits || 0;
+      }
+    });
     
     rewards.push({
       id: 'carbon_credits',
@@ -121,6 +132,16 @@ export default function RewardsScreen() {
           credits: badge.credits || 0
         });
       }
+    });
+
+    // Add total credits reward
+    rewards.push({
+      id: 'total_credits',
+      type: 'total',
+      name: 'Total Credits Earned',
+      emoji: '🏆',
+      amount: totalCreditsEarned,
+      description: `All credits from activities, badges, and achievements`
     });
 
     setRewardsEarned(rewards);
@@ -216,7 +237,9 @@ export default function RewardsScreen() {
   const badges = getDynamicBadges();
 
   const getStoreItems = () => {
-    const totalCredits = (userData?.wallet?.carbonCredits || 0) + (userData?.wallet?.nonCarbonCredits || 0);
+    const walletCredits = (userData?.wallet?.carbonCredits || 0) + (userData?.wallet?.nonCarbonCredits || 0);
+    const earnedCredits = rewardsEarned.find(r => r.id === 'total_credits')?.amount || 0;
+    const totalCredits = Math.max(walletCredits, earnedCredits);
     
     return [
       {
@@ -294,14 +317,29 @@ export default function RewardsScreen() {
             <Text style={styles.creditEmoji}>🌱</Text>
             <View style={styles.creditDetails}>
               <Text style={styles.creditLabel}>Carbon Credits</Text>
-              <Text style={styles.creditValue}>{userData?.wallet?.carbonCredits || 0}</Text>
+              <Text style={styles.creditValue}>
+                {rewardsEarned.find(r => r.id === 'carbon_credits')?.amount || 0}
+              </Text>
             </View>
           </View>
           <View style={styles.creditItem}>
             <Text style={styles.creditEmoji}>⭐</Text>
             <View style={styles.creditDetails}>
               <Text style={styles.creditLabel}>Eco Credits</Text>
-              <Text style={styles.creditValue}>{userData?.wallet?.nonCarbonCredits || 0}</Text>
+              <Text style={styles.creditValue}>
+                {rewardsEarned.find(r => r.id === 'eco_credits')?.amount || 0}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={styles.totalCreditsContainer}>
+          <View style={styles.totalCreditsItem}>
+            <Text style={styles.totalCreditsEmoji}>🏆</Text>
+            <View style={styles.totalCreditsDetails}>
+              <Text style={styles.totalCreditsLabel}>Total Credits Earned</Text>
+              <Text style={styles.totalCreditsValue}>
+                {rewardsEarned.find(r => r.id === 'total_credits')?.amount || 0}
+              </Text>
             </View>
           </View>
         </View>
@@ -498,6 +536,39 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#2d5a27',
+  },
+  totalCreditsContainer: {
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  totalCreditsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff3cd',
+    padding: 15,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#ffc107',
+  },
+  totalCreditsEmoji: {
+    fontSize: 28,
+    marginRight: 15,
+  },
+  totalCreditsDetails: {
+    flex: 1,
+  },
+  totalCreditsLabel: {
+    fontSize: 16,
+    color: '#856404',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  totalCreditsValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffc107',
   },
   rewardsEarnedCard: {
     backgroundColor: 'white',

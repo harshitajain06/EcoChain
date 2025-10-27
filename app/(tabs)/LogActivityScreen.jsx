@@ -2,7 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import {
@@ -405,12 +405,16 @@ export default function LogActivityScreen({ navigation }) {
         userId,
       });
 
-      // Update user's wallet with credits
+      // Update user's wallet with credits (accumulate instead of overwrite)
       const walletRef = doc(db, 'users', userId);
+      const currentWallet = await getDoc(walletRef);
+      const currentData = currentWallet.exists() ? currentWallet.data() : {};
+      const currentWalletData = currentData.wallet || { nonCarbonCredits: 0, carbonCredits: 0 };
+      
       await setDoc(walletRef, {
         wallet: {
-          nonCarbonCredits: 10,
-          carbonCredits: carbonImpact > 0 ? Math.floor(carbonImpact) : 0,
+          nonCarbonCredits: (currentWalletData.nonCarbonCredits || 0) + 10,
+          carbonCredits: (currentWalletData.carbonCredits || 0) + (carbonImpact > 0 ? Math.floor(carbonImpact) : 0),
         },
         lastActivity: serverTimestamp(),
       }, { merge: true });
@@ -464,7 +468,7 @@ export default function LogActivityScreen({ navigation }) {
         <Text style={styles.sectionTitle}>Activity Details</Text>
         
         <View style={styles.inputGroup}>
-            <Text style={styles.label}>Activity Name</Text>
+            <Text style={styles.label}>Activity Name <Text style={styles.requiredAsterisk}>*</Text></Text>
           <TextInput
             style={styles.input}
               placeholder="e.g., Beach Cleanup at Corniche"
@@ -475,7 +479,7 @@ export default function LogActivityScreen({ navigation }) {
         </View>
 
         <View style={styles.inputGroup}>
-            <Text style={styles.label}>Category</Text>
+            <Text style={styles.label}>Category <Text style={styles.requiredAsterisk}>*</Text></Text>
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={category}
@@ -493,7 +497,7 @@ export default function LogActivityScreen({ navigation }) {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Date</Text>
+            <Text style={styles.label}>Date <Text style={styles.requiredAsterisk}>*</Text></Text>
             <View style={styles.inputWithIcon}>
               <TextInput
                 style={styles.input}
@@ -507,7 +511,7 @@ export default function LogActivityScreen({ navigation }) {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Start Time</Text>
+            <Text style={styles.label}>Start Time <Text style={styles.requiredAsterisk}>*</Text></Text>
             <View style={styles.inputWithIcon}>
               <TextInput
                 style={styles.input}
@@ -521,7 +525,7 @@ export default function LogActivityScreen({ navigation }) {
         </View>
 
         <View style={styles.inputGroup}>
-            <Text style={styles.label}>Duration (hrs)</Text>
+            <Text style={styles.label}>Duration (hrs) <Text style={styles.requiredAsterisk}>*</Text></Text>
           <TextInput
             style={styles.input}
               value={duration}
@@ -535,7 +539,7 @@ export default function LogActivityScreen({ navigation }) {
 
         {/* Description Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Description (minimum 50 words)</Text>
+          <Text style={styles.sectionTitle}>Description (minimum 50 words) <Text style={styles.requiredAsterisk}>*</Text></Text>
           <TextInput
             style={styles.textArea}
             placeholder="Describe what you did, where, with whom, and the outcome."
@@ -605,7 +609,7 @@ export default function LogActivityScreen({ navigation }) {
           <Text style={styles.sectionTitle}>Additional Details</Text>
           
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Hours Spent</Text>
+            <Text style={styles.label}>Hours Spent <Text style={styles.requiredAsterisk}>*</Text></Text>
             <TextInput
               style={styles.input}
               value={hoursSpent}
@@ -617,7 +621,7 @@ export default function LogActivityScreen({ navigation }) {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Participants</Text>
+            <Text style={styles.label}>Participants <Text style={styles.requiredAsterisk}>*</Text></Text>
             <TextInput
               style={styles.input}
               value={participants}
@@ -1166,5 +1170,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 25,
     lineHeight: 20,
+  },
+  requiredAsterisk: {
+    color: '#ff4444',
+    fontWeight: 'bold',
   },
 });

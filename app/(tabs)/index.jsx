@@ -82,7 +82,7 @@ export default function AuthPage() {
       <View style={[styles.contentCard, isDarkMode && { backgroundColor: '#121212' }]}>
         <View style={styles.logoContainer}>
           <Text style={[styles.logoText, isDarkMode && { color: '#4CAF50' }]}>
-            EcoChain
+            ChonX
           </Text>
           <View style={styles.logoUnderline} />
         </View>
