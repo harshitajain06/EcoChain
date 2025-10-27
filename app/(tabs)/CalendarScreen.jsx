@@ -27,6 +27,10 @@ export default function CalendarScreen({ navigation }) {
   const [activityGrade, setActivityGrade] = useState('all');
   const [creating, setCreating] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [participantsModalVisible, setParticipantsModalVisible] = useState(false);
+  const [eventParticipants, setEventParticipants] = useState([]);
+  const [totalParticipants, setTotalParticipants] = useState(0);
 
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 
                   'July', 'August', 'September', 'October', 'November', 'December'];
@@ -107,6 +111,12 @@ export default function CalendarScreen({ navigation }) {
       });
       
       setUpcomingEvents(filteredEvents);
+      
+      // Calculate total participants across all events
+      const total = filteredEvents.reduce((sum, event) => {
+        return sum + (event.participants?.length || 0);
+      }, 0);
+      setTotalParticipants(total);
     } catch (error) {
       console.error('Error fetching events:', error);
     } finally {
@@ -158,6 +168,7 @@ export default function CalendarScreen({ navigation }) {
         status: 'upcoming',
         createdAt: new Date(),
         createdBy: user.uid,
+        participants: [], // Initialize empty participants array
       });
 
       // Reset form
@@ -179,6 +190,12 @@ export default function CalendarScreen({ navigation }) {
     } finally {
       setCreating(false);
     }
+  };
+
+  const handleViewParticipants = (event) => {
+    setSelectedEvent(event);
+    setEventParticipants(event.participants || []);
+    setParticipantsModalVisible(true);
   };
 
   if (loading) {
@@ -220,7 +237,7 @@ export default function CalendarScreen({ navigation }) {
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statEmoji}>👥</Text>
-          <Text style={styles.statValue}>0</Text>
+          <Text style={styles.statValue}>{totalParticipants}</Text>
           <Text style={styles.statLabel}>Participants</Text>
         </View>
       </View>
@@ -229,25 +246,40 @@ export default function CalendarScreen({ navigation }) {
       <View style={styles.eventsCard}>
         <Text style={styles.cardTitle}>Upcoming Events</Text>
         {upcomingEvents.length > 0 ? (
-          upcomingEvents.map((event, index) => (
-            <View key={event.id || index} style={styles.eventItem}>
-              <View style={styles.eventIcon}>
-                <Text style={styles.eventEmoji}>📅</Text>
+          upcomingEvents.map((event, index) => {
+            const participantCount = (event.participants || []).length;
+            return (
+              <View key={event.id || index} style={styles.eventItem}>
+                <View style={styles.eventIcon}>
+                  <Text style={styles.eventEmoji}>📅</Text>
+                </View>
+                <View style={styles.eventDetails}>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  <Text style={styles.eventDescription}>{event.description || 'No description'}</Text>
+                  <Text style={styles.eventDate}>
+                    {event.date ? (
+                      event.date?.toDate ? 
+                        event.date.toDate().toLocaleDateString() : 
+                        new Date(event.date).toLocaleDateString()
+                    ) : 'Date TBD'}
+                  </Text>
+                  {participantCount > 0 && (
+                    <Text style={styles.eventParticipantCount}>
+                      👥 {participantCount} participant{participantCount !== 1 ? 's' : ''}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.viewParticipantsButton}
+                  onPress={() => handleViewParticipants(event)}
+                >
+                  <Text style={styles.viewParticipantsButtonText}>
+                    {participantCount > 0 ? 'View' : '0'}
+                  </Text>
+                </TouchableOpacity>
               </View>
-              <View style={styles.eventDetails}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <Text style={styles.eventDescription}>{event.description || 'No description'}</Text>
-                <Text style={styles.eventDate}>
-                  {event.date ? (
-                    event.date?.toDate ? 
-                      event.date.toDate().toLocaleDateString() : 
-                      new Date(event.date).toLocaleDateString()
-                  ) : 'Date TBD'}
-                </Text>
-              </View>
-              <Text style={styles.eventStatus}>{event.status || 'upcoming'}</Text>
-            </View>
-          ))
+            );
+          })
         ) : (
           <View style={styles.noEventsContainer}>
             <Text style={styles.noEventsEmoji}>📅</Text>
@@ -270,13 +302,60 @@ export default function CalendarScreen({ navigation }) {
         >
           <Text style={styles.actionButtonText}>📝 Create Activity</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.secondaryButton]} 
-          onPress={() => alert('View Participants feature coming soon')}
-        >
-          <Text style={styles.actionButtonText}>👥 View Participants</Text>
-        </TouchableOpacity>
       </View>
+
+      {/* View Participants Modal */}
+      <Modal visible={participantsModalVisible} transparent animationType="slide">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Participants: {selectedEvent?.title}
+            </Text>
+            
+            {eventParticipants.length > 0 ? (
+              <ScrollView style={styles.participantsList}>
+                {eventParticipants.map((participant, index) => (
+                  <View key={index} style={styles.participantItem}>
+                    <View style={styles.participantIcon}>
+                      <Text style={styles.participantEmoji}>👤</Text>
+                    </View>
+                    <View style={styles.participantDetails}>
+                      <Text style={styles.participantName}>
+                        {participant.userName || 'Student'}
+                      </Text>
+                      <Text style={styles.participantInfo}>
+                        {participant.schoolName || 'Unknown School'} • {participant.grade || 'Unknown Grade'}
+                      </Text>
+                      <Text style={styles.participantJoined}>
+                        Joined: {participant.joinedAt ? 
+                          (participant.joinedAt?.toDate ? 
+                            participant.joinedAt.toDate().toLocaleDateString() : 
+                            new Date(participant.joinedAt).toLocaleDateString()
+                          ) : 'Recently'}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.noParticipantsContainer}>
+                <Text style={styles.noParticipantsEmoji}>👥</Text>
+                <Text style={styles.noParticipantsText}>No participants yet</Text>
+                <Text style={styles.noParticipantsSubtext}>
+                  Students can join this event from their dashboard
+                </Text>
+              </View>
+            )}
+            
+            <TouchableOpacity
+              onPress={() => setParticipantsModalVisible(false)}
+              style={styles.modalCancelButton}
+            >
+              <Text style={styles.modalCancelButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Create Activity Modal */}
       <Modal visible={modalVisible} transparent animationType="slide">
@@ -554,6 +633,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#4caf50',
   },
+  eventParticipantCount: {
+    fontSize: 12,
+    color: '#4caf50',
+    marginTop: 4,
+    fontWeight: '600',
+  },
   eventStatus: {
     fontSize: 12,
     color: '#4caf50',
@@ -562,6 +647,79 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     fontWeight: '600',
+  },
+  viewParticipantsButton: {
+    backgroundColor: '#2196f3',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginLeft: 10,
+  },
+  viewParticipantsButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  participantsList: {
+    maxHeight: 300,
+    marginBottom: 16,
+  },
+  participantItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  participantIcon: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#E8F5E8',
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  participantEmoji: {
+    fontSize: 20,
+  },
+  participantDetails: {
+    flex: 1,
+  },
+  participantName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  participantInfo: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 2,
+  },
+  participantJoined: {
+    fontSize: 12,
+    color: '#999',
+  },
+  noParticipantsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noParticipantsEmoji: {
+    fontSize: 48,
+    marginBottom: 10,
+  },
+  noParticipantsText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  noParticipantsSubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   noEventsContainer: {
     alignItems: 'center',

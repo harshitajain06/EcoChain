@@ -1,7 +1,7 @@
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { arrayUnion, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../../config/firebase';
 
 const { width } = Dimensions.get('window');
@@ -152,6 +152,51 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
+  const handleJoinEvent = async (eventId, eventTitle) => {
+    if (!user || !userData) {
+      Alert.alert('Error', 'You must be logged in to join events');
+      return;
+    }
+
+    try {
+      const eventRef = doc(db, 'events', eventId);
+      const eventDoc = await getDoc(eventRef);
+      
+      if (!eventDoc.exists()) {
+        Alert.alert('Error', 'Event not found');
+        return;
+      }
+
+      const eventData = eventDoc.data();
+      const participants = eventData.participants || [];
+
+      // Check if user is already a participant
+      if (participants.some(p => p.userId === user.uid)) {
+        Alert.alert('Already Joined', 'You have already joined this event');
+        return;
+      }
+
+      // Add user to participants
+      await updateDoc(eventRef, {
+        participants: arrayUnion({
+          userId: user.uid,
+          userName: userData.displayName || user.email || 'Student',
+          schoolName: userData.profile?.schoolName || 'Unknown',
+          grade: userData.profile?.grade || 'Unknown',
+          joinedAt: new Date()
+        })
+      });
+
+      Alert.alert('Success', `You have joined "${eventTitle}"!`);
+      
+      // Refresh the upcoming activities to show updated participant count
+      fetchUpcomingActivities();
+    } catch (error) {
+      console.error('Error joining event:', error);
+      Alert.alert('Error', 'Failed to join event. Please try again.');
+    }
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -267,6 +312,10 @@ export default function DashboardScreen({ navigation }) {
         {upcomingActivities.length > 0 ? (
           upcomingActivities.map((activity, index) => {
             const eventDate = activity.date?.toDate ? activity.date.toDate() : new Date(activity.date);
+            const participants = activity.participants || [];
+            const isJoined = participants.some(p => p.userId === user?.uid);
+            const participantCount = participants.length;
+            
             return (
               <View key={activity.id || index} style={styles.eventItem}>
                 <Text style={styles.eventEmoji}>📅</Text>
@@ -276,7 +325,23 @@ export default function DashboardScreen({ navigation }) {
                   <Text style={styles.eventDate}>
                     {eventDate.toLocaleDateString()}
                   </Text>
+                  {participantCount > 0 && (
+                    <Text style={styles.participantCount}>
+                      👥 {participantCount} participant{participantCount !== 1 ? 's' : ''}
+                    </Text>
+                  )}
                 </View>
+                {userData?.role === 'student' && (
+                  <TouchableOpacity
+                    style={[styles.joinButton, isJoined && styles.joinButtonJoined]}
+                    onPress={() => handleJoinEvent(activity.id, activity.title)}
+                    disabled={isJoined}
+                  >
+                    <Text style={[styles.joinButtonText, isJoined && styles.joinButtonTextJoined]}>
+                      {isJoined ? '✓ Joined' : 'Join Now'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             );
           })
@@ -505,6 +570,32 @@ const styles = StyleSheet.create({
   eventDate: {
     fontSize: 14,
     color: '#666',
+  },
+  participantCount: {
+    fontSize: 12,
+    color: '#4caf50',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  joinButton: {
+    backgroundColor: '#4caf50',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginLeft: 10,
+  },
+  joinButtonJoined: {
+    backgroundColor: '#e8f5e8',
+    borderWidth: 1,
+    borderColor: '#4caf50',
+  },
+  joinButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  joinButtonTextJoined: {
+    color: '#4caf50',
   },
   profilePromptCard: {
     backgroundColor: '#e8f5e8',
