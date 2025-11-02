@@ -1,21 +1,67 @@
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import {
-    Alert,
-    FlatList,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { Calendar } from 'react-native-calendars';
 import { auth, db } from '../../config/firebase';
 
 const categories = ['All', 'Waste', 'Energy', 'Transport', 'Food', 'Water'];
 const sortOptions = ['Newest', 'Oldest', 'Most Points', 'Least Points'];
+
+// Predefined activities matching the image exactly
+const predefinedActivities = [
+  {
+    id: '1',
+    activityName: 'Bike to School',
+    category: 'Transport',
+    frequency: '2x per week challenge',
+    points: 10,
+    carbonReduction: 0.8,
+    icon: 'bicycle',
+    description: 'Cycle to school twice a week to reduce carbon emissions'
+  },
+  {
+    id: '2',
+    activityName: 'Recycling Drive',
+    category: 'Waste',
+    frequency: '2x per week challenge',
+    points: 15,
+    carbonReduction: 1.2,
+    icon: 'recycle',
+    description: 'Participate in recycling drives twice a week'
+  },
+  {
+    id: '3',
+    activityName: 'Tree Planting',
+    category: 'Energy',
+    frequency: '2x per week challenge',
+    points: 150,
+    carbonReduction: 20,
+    icon: 'leaf',
+    description: 'Plant trees twice a week to help reduce carbon footprint'
+  },
+  {
+    id: '4',
+    activityName: 'Paperless Week',
+    category: 'Waste',
+    frequency: '2x per week challenge',
+    points: 40,
+    carbonReduction: 4.0,
+    icon: 'document-text',
+    description: 'Go paperless for two days each week'
+  }
+];
 
 const activityIcons = {
   'Transport': 'bicycle',
@@ -36,51 +82,41 @@ const activityIcons = {
 };
 
 export default function ActivityLibraryScreen({ navigation }) {
-  const [activities, setActivities] = useState([]);
-  const [filteredActivities, setFilteredActivities] = useState([]);
+  const [filteredActivities, setFilteredActivities] = useState(predefinedActivities);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState('Newest');
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [calendarModalVisible, setCalendarModalVisible] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
 
   const [user] = useAuthState(auth);
-  const userId = user ? user.uid : 'demoUserId';
 
   useEffect(() => {
-    loadActivities();
-  }, []);
+    if (user) {
+      fetchUserData();
+    }
+  }, [user]);
 
   useEffect(() => {
     filterAndSortActivities();
-  }, [activities, selectedCategory, sortBy, searchQuery]);
+  }, [selectedCategory, sortBy, searchQuery]);
 
-  const loadActivities = async () => {
+  const fetchUserData = async () => {
     try {
-      setLoading(true);
-      const activitiesRef = collection(db, 'activities');
-      const q = query(
-        activitiesRef,
-        where('userId', '==', userId),
-        orderBy('timestamp', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const activitiesData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      setActivities(activitiesData);
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setUserData(userDoc.data());
+      }
     } catch (error) {
-      console.error('Error loading activities:', error);
-      Alert.alert('Error', 'Failed to load activities');
-    } finally {
-      setLoading(false);
+      console.error('Error fetching user data:', error);
     }
   };
 
   const filterAndSortActivities = () => {
-    let filtered = [...activities];
+    let filtered = [...predefinedActivities];
 
     // Filter by category
     if (selectedCategory !== 'All') {
@@ -101,9 +137,9 @@ export default function ActivityLibraryScreen({ navigation }) {
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'Newest':
-          return new Date(b.timestamp?.toDate?.() || b.timestamp) - new Date(a.timestamp?.toDate?.() || a.timestamp);
+          return b.id.localeCompare(a.id);
         case 'Oldest':
-          return new Date(a.timestamp?.toDate?.() || a.timestamp) - new Date(b.timestamp?.toDate?.() || b.timestamp);
+          return a.id.localeCompare(b.id);
         case 'Most Points':
           return (b.points || 0) - (a.points || 0);
         case 'Least Points':
@@ -116,76 +152,80 @@ export default function ActivityLibraryScreen({ navigation }) {
     setFilteredActivities(filtered);
   };
 
-  const getActivityIcon = (category) => {
-    return activityIcons[category] || activityIcons['Default'];
-  };
-
-  const getCarbonReduction = (activity) => {
-    // Calculate carbon reduction based on activity type and value
-    const value = parseFloat(activity.value) || 0;
-    let reduction = 0;
-
-    switch (activity.category) {
-      case 'Transport':
-        if (activity.activityName?.includes('Bike') || activity.activityName?.includes('Cycle')) {
-          reduction = value * 0.192; // Assuming 0.192 kg CO2 per km for car vs 0 for bike
-        } else if (activity.activityName?.includes('Walk')) {
-          reduction = value * 0.192; // Assuming 0.192 kg CO2 per km for car vs 0 for walking
-        } else if (activity.activityName?.includes('Public')) {
-          reduction = value * 0.103; // Assuming 0.192 - 0.089 = 0.103 kg CO2 per km reduction
-        }
-        break;
-      case 'Waste':
-        if (activity.activityName?.includes('Recycling')) {
-          reduction = value * 0.5; // Assuming 0.5 kg CO2 per kg waste recycled
-        }
-        break;
-      case 'Energy':
-        if (activity.activityName?.includes('Electricity')) {
-          reduction = value * 0.4; // Assuming 0.4 kg CO2 per kWh saved
-        }
-        break;
-      case 'Food':
-        if (activity.activityName?.includes('Meat')) {
-          reduction = value * 7.2; // Assuming 7.2 kg CO2 per day for meat reduction
-        }
-        break;
-      case 'Water':
-        if (activity.activityName?.includes('Water')) {
-          reduction = value * 0.0003; // Assuming 0.0003 kg CO2 per liter saved
-        }
-        break;
-      default:
-        reduction = value * 0.1; // Default calculation
+  const getActivityIcon = (activity) => {
+    // Use the icon specified in the activity, or fallback to category-based icon
+    if (activity.icon) {
+      return activity.icon;
     }
-
-    return Math.round(reduction * 10) / 10; // Round to 1 decimal place
-  };
-
-  const getPoints = (activity) => {
-    // Calculate points based on carbon reduction
-    const carbonReduction = getCarbonReduction(activity);
-    return Math.max(10, Math.round(carbonReduction * 5)); // Minimum 10 points, 5 points per kg CO2
+    return activityIcons[activity.category] || activityIcons['Default'];
   };
 
   const handleAddToCalendar = (activity) => {
-    Alert.alert(
-      'Add to Calendar',
-      `Would you like to add "${activity.activityName}" to your calendar?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Add', onPress: () => {
-          // Here you would integrate with calendar functionality
-          Alert.alert('Success', 'Activity added to calendar!');
-        }}
-      ]
-    );
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to add activities to calendar');
+      return;
+    }
+    
+    // Set the selected activity and show calendar modal
+    setSelectedActivity(activity);
+    setSelectedDate(null);
+    setCalendarModalVisible(true);
+  };
+
+  const handleDateSelect = (day) => {
+    setSelectedDate(day.dateString);
+  };
+
+  const handleConfirmAddToCalendar = async () => {
+    if (!selectedDate || !selectedActivity) {
+      Alert.alert('Error', 'Please select a date');
+      return;
+    }
+
+    try {
+      // Parse the selected date
+      const eventDate = new Date(selectedDate);
+      
+      // Create event in Firestore
+      await addDoc(collection(db, 'events'), {
+        title: selectedActivity.activityName,
+        description: selectedActivity.description || `${selectedActivity.activityName} - ${selectedActivity.frequency}`,
+        date: eventDate,
+        location: 'TBD',
+        schoolName: userData?.profile?.schoolName || 'all',
+        specificGrade: userData?.profile?.grade || 'all',
+        status: 'upcoming',
+        createdAt: new Date(),
+        createdBy: user.uid,
+        participants: [],
+        activityId: selectedActivity.id,
+        points: selectedActivity.points,
+        carbonReduction: selectedActivity.carbonReduction,
+      });
+
+      setCalendarModalVisible(false);
+      setSelectedActivity(null);
+      setSelectedDate(null);
+
+      Alert.alert(
+        'Success', 
+        `"${selectedActivity.activityName}" has been added to your calendar! It will appear in your upcoming activities.`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Error adding activity to calendar:', error);
+      Alert.alert('Error', 'Failed to add activity to calendar. Please try again.');
+    }
+  };
+
+  const handleCancelCalendar = () => {
+    setCalendarModalVisible(false);
+    setSelectedActivity(null);
+    setSelectedDate(null);
   };
 
   const renderActivityCard = ({ item: activity }) => {
-    const carbonReduction = getCarbonReduction(activity);
-    const points = getPoints(activity);
-    const iconName = getActivityIcon(activity.category);
+    const iconName = getActivityIcon(activity);
 
     return (
       <View style={styles.activityCard}>
@@ -196,14 +236,14 @@ export default function ActivityLibraryScreen({ navigation }) {
           <View style={styles.activityInfo}>
             <Text style={styles.activityTitle}>{activity.activityName}</Text>
             <Text style={styles.activityDescription}>
-              {activity.frequency || 'One-time'} • {points} pts
+              {activity.frequency} • {activity.points} pts
             </Text>
           </View>
         </View>
         
         <View style={styles.activityRight}>
           <View style={styles.carbonTag}>
-            <Text style={styles.carbonText}>~{carbonReduction} kg Δ</Text>
+            <Text style={styles.carbonText}>~{activity.carbonReduction} kg Δ</Text>
           </View>
           <TouchableOpacity
             style={styles.addButton}
@@ -236,22 +276,6 @@ export default function ActivityLibraryScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color="white" />
-        </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>Activity Library</Text>
-        
-        <TouchableOpacity style={styles.filterButton}>
-          <Ionicons name="filter" size={24} color="white" />
-        </TouchableOpacity>
-      </View>
-
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
@@ -279,7 +303,14 @@ export default function ActivityLibraryScreen({ navigation }) {
       {/* Sort Option */}
       <View style={styles.sortContainer}>
         <Text style={styles.sortLabel}>Sort</Text>
-        <TouchableOpacity style={styles.sortButton}>
+        <TouchableOpacity 
+          style={styles.sortButton}
+          onPress={() => {
+            const currentIndex = sortOptions.indexOf(sortBy);
+            const nextIndex = (currentIndex + 1) % sortOptions.length;
+            setSortBy(sortOptions[nextIndex]);
+          }}
+        >
           <Text style={styles.sortButtonText}>{sortBy}</Text>
           <Ionicons name="chevron-down" size={16} color="white" />
         </TouchableOpacity>
@@ -313,6 +344,72 @@ export default function ActivityLibraryScreen({ navigation }) {
           )
         }
       />
+
+      {/* Calendar Modal */}
+      <Modal
+        visible={calendarModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCancelCalendar}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Select Date for {selectedActivity?.activityName}
+            </Text>
+            
+            <Calendar
+              onDayPress={handleDateSelect}
+              markedDates={{
+                [selectedDate]: {
+                  selected: true,
+                  selectedColor: '#4caf50',
+                  selectedTextColor: 'white'
+                }
+              }}
+              minDate={new Date().toISOString().split('T')[0]}
+              theme={{
+                backgroundColor: '#1E1E1E',
+                calendarBackground: '#1E1E1E',
+                textSectionTitleColor: '#AAAAAA',
+                selectedDayBackgroundColor: '#4caf50',
+                selectedDayTextColor: '#ffffff',
+                todayTextColor: '#4caf50',
+                dayTextColor: '#FFFFFF',
+                textDisabledColor: '#666666',
+                dotColor: '#4caf50',
+                selectedDotColor: '#ffffff',
+                arrowColor: '#4caf50',
+                monthTextColor: '#FFFFFF',
+                indicatorColor: '#4caf50',
+                textDayFontWeight: '500',
+                textMonthFontWeight: 'bold',
+                textDayHeaderFontWeight: '500',
+                textDayFontSize: 14,
+                textMonthFontSize: 16,
+                textDayHeaderFontSize: 13
+              }}
+              style={styles.calendar}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={handleCancelCalendar}
+              >
+                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalConfirmButton, !selectedDate && styles.modalConfirmButtonDisabled]}
+                onPress={handleConfirmAddToCalendar}
+                disabled={!selectedDate}
+              >
+                <Text style={styles.modalConfirmButtonText}>Add to Calendar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -322,27 +419,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#111111',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  filterButton: {
-    padding: 8,
-  },
   searchContainer: {
     paddingHorizontal: 20,
+    paddingTop: 60,
     marginBottom: 20,
   },
   searchBar: {
@@ -360,7 +439,7 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   categoriesContainer: {
-    marginBottom: 20,
+    marginBottom: 1,
   },
   categoriesContent: {
     paddingHorizontal: 20,
@@ -369,8 +448,9 @@ const styles = StyleSheet.create({
   categoryButton: {
     backgroundColor: '#1E1E1E',
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 6,
     borderRadius: 20,
+    height: 40,
   },
   selectedCategoryButton: {
     backgroundColor: '#4caf50',
@@ -389,6 +469,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
+    marginTop: -280,
     marginBottom: 20,
   },
   sortLabel: {
@@ -401,7 +482,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#1E1E1E',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: 8,
     gap: 8,
   },
@@ -505,6 +586,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#4caf50',
     fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 20,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  calendar: {
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#2a2a2a',
+    alignItems: 'center',
+  },
+  modalCancelButtonText: {
+    color: '#AAAAAA',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#4caf50',
+    alignItems: 'center',
+  },
+  modalConfirmButtonDisabled: {
+    backgroundColor: '#2a2a2a',
+    opacity: 0.5,
+  },
+  modalConfirmButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

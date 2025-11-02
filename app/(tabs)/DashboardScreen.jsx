@@ -11,6 +11,7 @@ export default function DashboardScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
   const [recentActivities, setRecentActivities] = useState([]);
   const [upcomingActivities, setUpcomingActivities] = useState([]);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -140,8 +141,7 @@ export default function DashboardScreen({ navigation }) {
           const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
           const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
           return dateA - dateB;
-        })
-        .slice(0, 3); // Get next 3 upcoming activities
+        });
       
       console.log(`Showing ${upcoming.length} upcoming activities`);
       setUpcomingActivities(upcoming);
@@ -205,9 +205,21 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const calculateProgress = () => {
-    const current = 2.5; // This should come from user data
-    const target = 2.0;
+    // Get annual carbon footprint from lifestyle survey (in kg CO2)
+    const annualFootprintKg = userData?.lifestyleSurvey?.annualCarbonFootprint || 0;
+    // Convert to tonnes (tCO2)
+    const current = annualFootprintKg / 1000;
+    const target = 2.0; // Target in tonnes
+    if (target === 0) return 0;
     return Math.min((current / target) * 100, 100);
+  };
+
+  const getCarbonFootprint = () => {
+    // Get annual carbon footprint from lifestyle survey (in kg CO2)
+    const annualFootprintKg = userData?.lifestyleSurvey?.annualCarbonFootprint || 0;
+    // Convert to tonnes (tCO2) and round to 1 decimal place
+    const footprintTonnes = annualFootprintKg / 1000;
+    return footprintTonnes.toFixed(1);
   };
 
   if (loading) {
@@ -250,7 +262,7 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.footprintCard}>
         <View style={styles.footprintHeader}>
           <Text style={styles.cardTitle}>Carbon Footprint</Text>
-          <Text style={styles.footprintValue}>2.5 tCO₂</Text>
+          <Text style={styles.footprintValue}>{getCarbonFootprint()} tCO₂</Text>
         </View>
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
@@ -310,41 +322,53 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.eventsCard}>
         <Text style={styles.cardTitle}>Upcoming Activities</Text>
         {upcomingActivities.length > 0 ? (
-          upcomingActivities.map((activity, index) => {
-            const eventDate = activity.date?.toDate ? activity.date.toDate() : new Date(activity.date);
-            const participants = activity.participants || [];
-            const isJoined = participants.some(p => p.userId === user?.uid);
-            const participantCount = participants.length;
-            
-            return (
-              <View key={activity.id || index} style={styles.eventItem}>
-                <Text style={styles.eventEmoji}>📅</Text>
-                <View style={styles.eventDetails}>
-                  <Text style={styles.eventTitle}>{activity.title}</Text>
-                  <Text style={styles.eventDescription}>{activity.description || 'No description'}</Text>
-                  <Text style={styles.eventDate}>
-                    {eventDate.toLocaleDateString()}
-                  </Text>
-                  {participantCount > 0 && (
-                    <Text style={styles.participantCount}>
-                      👥 {participantCount} participant{participantCount !== 1 ? 's' : ''}
+          <>
+            {(showAllUpcoming ? upcomingActivities : upcomingActivities.slice(0, 3)).map((activity, index) => {
+              const eventDate = activity.date?.toDate ? activity.date.toDate() : new Date(activity.date);
+              const participants = activity.participants || [];
+              const isJoined = participants.some(p => p.userId === user?.uid);
+              const participantCount = participants.length;
+              
+              return (
+                <View key={activity.id || index} style={styles.eventItem}>
+                  <Text style={styles.eventEmoji}>📅</Text>
+                  <View style={styles.eventDetails}>
+                    <Text style={styles.eventTitle}>{activity.title}</Text>
+                    <Text style={styles.eventDescription}>{activity.description || 'No description'}</Text>
+                    <Text style={styles.eventDate}>
+                      {eventDate.toLocaleDateString()}
                     </Text>
+                    {participantCount > 0 && (
+                      <Text style={styles.participantCount}>
+                        👥 {participantCount} participant{participantCount !== 1 ? 's' : ''}
+                      </Text>
+                    )}
+                  </View>
+                  {userData?.role === 'student' && (
+                    <TouchableOpacity
+                      style={[styles.joinButton, isJoined && styles.joinButtonJoined]}
+                      onPress={() => handleJoinEvent(activity.id, activity.title)}
+                      disabled={isJoined}
+                    >
+                      <Text style={[styles.joinButtonText, isJoined && styles.joinButtonTextJoined]}>
+                        {isJoined ? '✓ Joined' : 'Join Now'}
+                      </Text>
+                    </TouchableOpacity>
                   )}
                 </View>
-                {userData?.role === 'student' && (
-                  <TouchableOpacity
-                    style={[styles.joinButton, isJoined && styles.joinButtonJoined]}
-                    onPress={() => handleJoinEvent(activity.id, activity.title)}
-                    disabled={isJoined}
-                  >
-                    <Text style={[styles.joinButtonText, isJoined && styles.joinButtonTextJoined]}>
-                      {isJoined ? '✓ Joined' : 'Join Now'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            );
-          })
+              );
+            })}
+            {upcomingActivities.length > 3 && (
+              <TouchableOpacity
+                style={styles.showMoreButton}
+                onPress={() => setShowAllUpcoming(!showAllUpcoming)}
+              >
+                <Text style={styles.showMoreButtonText}>
+                  {showAllUpcoming ? 'Show Less' : `Show More (${upcomingActivities.length - 3} more)`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
         ) : (
           <Text style={styles.noActivities}>No upcoming activities scheduled</Text>
         )}
@@ -641,6 +665,18 @@ const styles = StyleSheet.create({
   profilePromptButtonText: {
     color: 'white',
     fontSize: 14,
+    fontWeight: '600',
+  },
+  showMoreButton: {
+    marginTop: 15,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  showMoreButtonText: {
+    color: '#4caf50',
+    fontSize: 16,
     fontWeight: '600',
   },
 });
