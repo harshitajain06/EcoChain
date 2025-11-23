@@ -20,6 +20,7 @@ import LoginRegister from './index';
 import LifestyleSurveyScreen from "./LifestyleSurveyScreen";
 import LogActivityScreen from "./LogActivityScreen";
 import RewardsScreen from "./RewardsScreen";
+import StudentCalendarScreen from "./StudentCalendarScreen";
 
 
 const Stack = createStackNavigator();
@@ -72,8 +73,10 @@ const BottomTabs = () => {
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
 
-          if (route.name === "Dashboard" || route.name === "Calendar") {
+          if (route.name === "Dashboard") {
             iconName = focused ? "home" : "home-outline";
+          } else if (route.name === "Calendar" || route.name === "Student Calendar") {
+            iconName = focused ? "calendar" : "calendar-outline";
           } else if (route.name === "Log Activity") {
             iconName = focused ? "pulse" : "pulse-outline";
           } else if (route.name === "Rewards") {
@@ -93,6 +96,11 @@ const BottomTabs = () => {
       ) : (
         <>
           <Tab.Screen name="Dashboard" component={DashboardScreen} />
+          <Tab.Screen
+            name="Student Calendar"
+            component={StudentCalendarScreen}
+            options={{ title: "Calendar" }}
+          />
           <Tab.Screen
             name="Log Activity"
             component={LogActivityScreen}

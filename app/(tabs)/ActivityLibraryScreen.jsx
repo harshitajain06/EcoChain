@@ -3,15 +3,15 @@ import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import {
-  Alert,
-  FlatList,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    FlatList,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { auth, db } from '../../config/firebase';
@@ -90,7 +90,7 @@ export default function ActivityLibraryScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
   const [calendarModalVisible, setCalendarModalVisible] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDates, setSelectedDates] = useState([]);
 
   const [user] = useAuthState(auth);
 
@@ -168,48 +168,86 @@ export default function ActivityLibraryScreen({ navigation }) {
     
     // Set the selected activity and show calendar modal
     setSelectedActivity(activity);
-    setSelectedDate(null);
+    setSelectedDates([]);
     setCalendarModalVisible(true);
   };
 
   const handleDateSelect = (day) => {
-    setSelectedDate(day.dateString);
+    const dateString = day.dateString;
+    const maxDates = selectedActivity?.frequency?.includes('2x per week') ? 2 : 1;
+    
+    // Toggle date selection
+    if (selectedDates.includes(dateString)) {
+      // Remove date if already selected
+      setSelectedDates(selectedDates.filter(d => d !== dateString));
+    } else {
+      // Add date if not at max limit
+      if (selectedDates.length < maxDates) {
+        setSelectedDates([...selectedDates, dateString]);
+      } else if (maxDates === 1) {
+        // For single date selection, replace the existing date
+        setSelectedDates([dateString]);
+      } else {
+        Alert.alert(
+          'Maximum Dates Selected',
+          `You can only select ${maxDates} dates for this activity.`
+        );
+      }
+    }
   };
 
   const handleConfirmAddToCalendar = async () => {
-    if (!selectedDate || !selectedActivity) {
-      Alert.alert('Error', 'Please select a date');
+    const requiredDates = selectedActivity?.frequency?.includes('2x per week') ? 2 : 1;
+    
+    if (selectedDates.length === 0) {
+      Alert.alert('Error', 'Please select at least one date');
+      return;
+    }
+    
+    if (selectedDates.length < requiredDates) {
+      Alert.alert(
+        'Incomplete Selection',
+        `Please select ${requiredDates} date${requiredDates > 1 ? 's' : ''} for this ${selectedActivity.frequency} activity.`
+      );
+      return;
+    }
+
+    if (!selectedActivity) {
+      Alert.alert('Error', 'Activity not selected');
       return;
     }
 
     try {
-      // Parse the selected date
-      const eventDate = new Date(selectedDate);
-      
-      // Create event in Firestore
-      await addDoc(collection(db, 'events'), {
-        title: selectedActivity.activityName,
-        description: selectedActivity.description || `${selectedActivity.activityName} - ${selectedActivity.frequency}`,
-        date: eventDate,
-        location: 'TBD',
-        schoolName: userData?.profile?.schoolName || 'all',
-        specificGrade: userData?.profile?.grade || 'all',
-        status: 'upcoming',
-        createdAt: new Date(),
-        createdBy: user.uid,
-        participants: [],
-        activityId: selectedActivity.id,
-        points: selectedActivity.points,
-        carbonReduction: selectedActivity.carbonReduction,
+      // Create an event for each selected date
+      const promises = selectedDates.map(dateString => {
+        const eventDate = new Date(dateString);
+        
+        return addDoc(collection(db, 'events'), {
+          title: selectedActivity.activityName,
+          description: selectedActivity.description || `${selectedActivity.activityName} - ${selectedActivity.frequency}`,
+          date: eventDate,
+          location: 'TBD',
+          schoolName: userData?.profile?.schoolName || 'all',
+          specificGrade: userData?.profile?.grade || 'all',
+          status: 'upcoming',
+          createdAt: new Date(),
+          createdBy: user.uid,
+          participants: [],
+          activityId: selectedActivity.id,
+          points: selectedActivity.points,
+          carbonReduction: selectedActivity.carbonReduction,
+        });
       });
+
+      await Promise.all(promises);
 
       setCalendarModalVisible(false);
       setSelectedActivity(null);
-      setSelectedDate(null);
+      setSelectedDates([]);
 
       Alert.alert(
         'Success', 
-        `"${selectedActivity.activityName}" has been added to your calendar! It will appear in your upcoming activities.`,
+        `"${selectedActivity.activityName}" has been added to your calendar for ${selectedDates.length} date${selectedDates.length > 1 ? 's' : ''}! It will appear in your upcoming activities.`,
         [{ text: 'OK' }]
       );
     } catch (error) {
@@ -221,7 +259,7 @@ export default function ActivityLibraryScreen({ navigation }) {
   const handleCancelCalendar = () => {
     setCalendarModalVisible(false);
     setSelectedActivity(null);
-    setSelectedDate(null);
+    setSelectedDates([]);
   };
 
   const renderActivityCard = ({ item: activity }) => {
@@ -355,18 +393,32 @@ export default function ActivityLibraryScreen({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              Select Date for {selectedActivity?.activityName}
+              Select Date{selectedActivity?.frequency?.includes('2x per week') ? 's' : ''} for {selectedActivity?.activityName}
             </Text>
+            
+            {selectedActivity?.frequency?.includes('2x per week') && (
+              <View style={styles.dateSelectionInfo}>
+                <Text style={styles.dateSelectionText}>
+                  Select 2 dates • {selectedDates.length}/2 selected
+                </Text>
+                {selectedDates.length > 0 && (
+                  <Text style={styles.selectedDatesText}>
+                    Selected: {selectedDates.map(d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ')}
+                  </Text>
+                )}
+              </View>
+            )}
             
             <Calendar
               onDayPress={handleDateSelect}
-              markedDates={{
-                [selectedDate]: {
+              markedDates={selectedDates.reduce((acc, date) => {
+                acc[date] = {
                   selected: true,
                   selectedColor: '#4caf50',
                   selectedTextColor: 'white'
-                }
-              }}
+                };
+                return acc;
+              }, {})}
               minDate={new Date().toISOString().split('T')[0]}
               theme={{
                 backgroundColor: '#1E1E1E',
@@ -400,11 +452,16 @@ export default function ActivityLibraryScreen({ navigation }) {
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalConfirmButton, !selectedDate && styles.modalConfirmButtonDisabled]}
+                style={[
+                  styles.modalConfirmButton, 
+                  selectedDates.length === 0 && styles.modalConfirmButtonDisabled
+                ]}
                 onPress={handleConfirmAddToCalendar}
-                disabled={!selectedDate}
+                disabled={selectedDates.length === 0}
               >
-                <Text style={styles.modalConfirmButtonText}>Add to Calendar</Text>
+                <Text style={styles.modalConfirmButtonText}>
+                  Add to Calendar {selectedDates.length > 0 ? `(${selectedDates.length})` : ''}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -604,8 +661,27 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
-    marginBottom: 20,
+    marginBottom: 16,
     textAlign: 'center',
+  },
+  dateSelectionInfo: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  dateSelectionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4caf50',
+    marginBottom: 4,
+  },
+  selectedDatesText: {
+    fontSize: 12,
+    color: '#AAAAAA',
+    textAlign: 'center',
+    marginTop: 4,
   },
   calendar: {
     borderRadius: 12,
