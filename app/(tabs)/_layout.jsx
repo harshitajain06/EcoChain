@@ -156,7 +156,16 @@ const DrawerNavigator = () => {
 
   return (
     <Drawer.Navigator initialRouteName="MainTabs">
-      <Drawer.Screen name="MainTabs" component={BottomTabs} options={{ title: 'Home' }} />
+      <Drawer.Screen 
+        name="MainTabs" 
+        component={BottomTabs} 
+        options={{ 
+          title: 'Home',
+          drawerIcon: ({ color, size }) => (
+            <Ionicons name="home-outline" size={size} color={color} />
+          ),
+        }} 
+      />
       
       {!isStaff && (
         <>
