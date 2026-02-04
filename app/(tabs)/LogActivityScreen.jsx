@@ -2,7 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, query, where, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import {
@@ -22,6 +22,40 @@ import {
 import { auth, db } from '../../config/firebase';
 
 const { width } = Dimensions.get('window');
+
+// Predefined activities with categories (matching ActivityLibraryScreen)
+const predefinedActivities = [
+  {
+    id: '1',
+    activityName: 'Bike to School',
+    category: 'Transport',
+  },
+  {
+    id: '2',
+    activityName: 'Recycling Drive',
+    category: 'Waste',
+  },
+  {
+    id: '3',
+    activityName: 'Tree Planting',
+    category: 'Energy',
+  },
+  {
+    id: '4',
+    activityName: 'Paperless Week',
+    category: 'Waste',
+  },
+];
+
+// Map activity library categories to LogActivityScreen categories
+const categoryMapping = {
+  'Transport': 'Transport',
+  'Waste': 'Waste',
+  'Energy': 'Energy',
+  'Water': 'Water',
+  'Food': 'Waste', // Map Food to Waste category
+  'Air': 'Air',
+};
 
 // Mapping for category/activity to Climatiq IDs - Updated with current valid IDs
 const activityMap = {
@@ -300,18 +334,141 @@ export default function LogActivityScreen({ navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [confirmationModalVisible, setConfirmationModalVisible] = useState(false);
   const [wordCountErrorModalVisible, setWordCountErrorModalVisible] = useState(false);
-  
-  // Debug modal state changes
-  useEffect(() => {
-    console.log('Modal visibility changed:', confirmationModalVisible);
-  }, [confirmationModalVisible]);
   const [co2Result, setCo2Result] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedImages, setSelectedImages] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [userData, setUserData] = useState(null);
+  const [selectedEventId, setSelectedEventId] = useState('');
 
   const [user] = useAuthState(auth);
   const userId = user ? user.uid : 'demoUserId';
+
+  // Fetch user data
+  useEffect(() => {
+    if (user) {
+      fetchUserData();
+    }
+  }, [user]);
+
+  // Fetch calendar events after userData is loaded
+  useEffect(() => {
+    if (user && userData) {
+      fetchCalendarEvents();
+    }
+  }, [user, userData]);
+
+  // Debug modal state changes
+  useEffect(() => {
+    console.log('Modal visibility changed:', confirmationModalVisible);
+  }, [confirmationModalVisible]);
+
+  // Auto-fill category when activity is selected
+  useEffect(() => {
+    if (selectedEventId && calendarEvents.length > 0) {
+      const selectedEvent = calendarEvents.find(event => event.id === selectedEventId);
+      if (selectedEvent) {
+        setActivityName(selectedEvent.title || '');
+        
+        // Try to get category from event
+        let eventCategory = null;
+        
+        // If event has activityId, look up category from predefined activities
+        if (selectedEvent.activityId) {
+          const activity = predefinedActivities.find(a => a.id === selectedEvent.activityId);
+          if (activity) {
+            eventCategory = activity.category;
+          }
+        }
+        
+        // If event has category field directly, use it
+        if (!eventCategory && selectedEvent.category) {
+          eventCategory = selectedEvent.category;
+        }
+        
+        // Map the category to LogActivityScreen categories
+        if (eventCategory) {
+          const mappedCategory = categoryMapping[eventCategory] || 'Air';
+          setCategory(mappedCategory);
+        }
+      }
+    }
+  }, [selectedEventId, calendarEvents]);
+
+  const fetchUserData = async () => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setUserData(userDoc.data());
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+
+  const fetchCalendarEvents = async () => {
+    try {
+      const eventsQuery = query(
+        collection(db, 'events'),
+        where('status', '==', 'upcoming')
+      );
+      const querySnapshot = await getDocs(eventsQuery);
+      const events = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Filter events based on user's school and grade (if student)
+      let filteredEvents = events;
+      if (userData?.role === 'student') {
+        filteredEvents = events.filter(event => {
+          // Filter by school
+          if (event.schoolName && event.schoolName !== 'all' && userData.profile?.schoolName) {
+            if (event.schoolName !== userData.profile.schoolName) {
+              return false;
+            }
+          }
+          
+          // Filter by grade
+          if (event.specificGrade && event.specificGrade !== 'all' && userData.profile?.grade) {
+            if (event.specificGrade !== userData.profile.grade) {
+              return false;
+            }
+          }
+          
+          return true;
+        });
+      }
+      
+      // Sort by date (upcoming first)
+      filteredEvents.sort((a, b) => {
+        try {
+          const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+          const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+          return dateA - dateB;
+        } catch (error) {
+          return 0;
+        }
+      });
+      
+      // Remove duplicates based on activity title (keep first occurrence)
+      const uniqueEvents = [];
+      const seenTitles = new Set();
+      
+      for (const event of filteredEvents) {
+        const title = event.title || 'Untitled Activity';
+        if (!seenTitles.has(title)) {
+          seenTitles.add(title);
+          uniqueEvents.push(event);
+        }
+      }
+      
+      setCalendarEvents(uniqueEvents);
+    } catch (error) {
+      console.error('Error fetching calendar events:', error);
+    }
+  };
 
   const requestPermissions = async () => {
     if (Platform.OS !== 'web') {
@@ -427,6 +584,7 @@ export default function LogActivityScreen({ navigation }) {
       setParticipants('1');
       setCategory('Air');
       setSelectedImages([]);
+      setSelectedEventId('');
 
       setCo2Result(carbonImpact);
       setModalVisible(true);
@@ -469,13 +627,38 @@ export default function LogActivityScreen({ navigation }) {
         
         <View style={styles.inputGroup}>
             <Text style={styles.label}>Activity Name <Text style={styles.requiredAsterisk}>*</Text></Text>
-          <TextInput
-            style={styles.input}
-              placeholder="e.g., Beach Cleanup at Corniche"
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={selectedEventId}
+              onValueChange={(itemValue) => {
+                setSelectedEventId(itemValue);
+                if (itemValue === '') {
+                  setActivityName('');
+                }
+              }}
+              style={styles.picker}
+            >
+              <Picker.Item label="Select from calendar or type below..." value="" />
+              {calendarEvents.map((event) => (
+                <Picker.Item 
+                  key={event.id} 
+                  label={event.title || 'Untitled Activity'} 
+                  value={event.id} 
+                />
+              ))}
+            </Picker>
+          </View>
+          {!selectedEventId && (
+            <TextInput
+              style={styles.input}
               value={activityName}
-              onChangeText={setActivityName}
-            placeholderTextColor="#999"
-          />
+              onChangeText={(text) => {
+                setActivityName(text);
+              }}
+              placeholder="e.g., Beach Cleanup at Corniche (or select from calendar above)"
+              placeholderTextColor="#999"
+            />
+          )}
         </View>
 
         <View style={styles.inputGroup}>
@@ -492,8 +675,7 @@ export default function LogActivityScreen({ navigation }) {
                 <Picker.Item label="Energy" value="Energy" />
                 <Picker.Item label="Transport" value="Transport" />
             </Picker>
-              <Ionicons name="chevron-down" size={20} color="#666" style={styles.pickerIcon} />
-            </View>
+          </View>
           </View>
 
           <View style={styles.inputGroup}>
@@ -835,6 +1017,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: '#333',
+  },
+  inputReadOnly: {
+    marginTop: 10,
+    backgroundColor: '#f5f5f5',
   },
   inputWithIcon: {
     position: 'relative',
