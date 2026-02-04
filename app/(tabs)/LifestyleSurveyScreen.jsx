@@ -234,6 +234,8 @@ export default function LifestyleSurveyScreen({ navigation }) {
 
   const handleViewDashboard = () => {
     setModalVisible(false);
+    // Navigate back to MainTabs drawer, which will show the Dashboard tab
+    // The Dashboard will automatically refetch data when it comes into focus
     navigation.navigate('MainTabs');
   };
 

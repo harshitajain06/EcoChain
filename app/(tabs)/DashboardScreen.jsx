@@ -1,5 +1,6 @@
 import { arrayUnion, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../../config/firebase';
@@ -27,11 +28,26 @@ export default function DashboardScreen({ navigation }) {
     }
   }, [user, userData]);
 
+  // Refetch user data when screen comes into focus (e.g., after completing survey)
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        fetchUserData();
+        fetchRecentActivities();
+      }
+    }, [user])
+  );
+
   const fetchUserData = async () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
-        setUserData(userDoc.data());
+        const data = userDoc.data();
+        setUserData(data);
+        // Debug: Log carbon footprint data
+        if (data.lifestyleSurvey?.annualCarbonFootprint) {
+          console.log('Carbon footprint loaded:', data.lifestyleSurvey.annualCarbonFootprint, 'kg CO2');
+        }
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
